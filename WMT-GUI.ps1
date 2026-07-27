@@ -9,7 +9,7 @@
 # ==========================================
 # 1. SETUP
 # ==========================================
-$AppVersion = "6.3"
+$AppVersion = "6.4"
 $ErrorActionPreference = "SilentlyContinue"
 # Set encoding dynamically based on the user's local Windows language
 $OEMEncoding = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage)
@@ -38360,7 +38360,7 @@ if ($btnToggleHibernate) {
         })
 }
 
-$btnToggleSuperfetch.Add_Click({
+if ($btnToggleSuperfetch) { $btnToggleSuperfetch.Add_Click({
         $svc = Get-Service "SysMain" -ErrorAction SilentlyContinue
         if ($svc -and $svc.StartType -eq "Disabled") {
             Invoke-UiCommand {
@@ -38377,22 +38377,22 @@ $btnToggleSuperfetch.Add_Click({
             } "Disabling Superfetch..."
         }
         Start-TweakButtonStatesDeferredUpdate
-    })
+    }) }
 
 
 
 
 
-$btnPerfUltimatePower.Add_Click({
+if ($btnPerfUltimatePower) { $btnPerfUltimatePower.Add_Click({
         Invoke-UiCommand {
             powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
             powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
             Write-GuiLog "Ultimate Performance power plan enabled."
         } "Enabling Ultimate Performance..."
         Start-TweakButtonStatesDeferredUpdate
-    })
+    }) }
 
-$btnAppxLoad.Add_Click({
+if ($btnAppxLoad) { $btnAppxLoad.Add_Click({
         Invoke-UiCommand {
             $lstAppxPackages.Items.Clear()
             $apps = @(Get-AppxPackage | Where-Object { $_.Name -and $_.NonRemovable -ne $true } | Sort-Object Name)
@@ -38404,9 +38404,9 @@ $btnAppxLoad.Add_Click({
             }
             Write-GuiLog "Loaded $($apps.Count) removable UWP apps."
         } "Loading UWP apps..."
-    })
+    }) }
 
-$btnAppxRemoveSel.Add_Click({
+if ($btnAppxRemoveSel) { $btnAppxRemoveSel.Add_Click({
         $selected = $lstAppxPackages.SelectedItems
         if ($selected.Count -eq 0) { return }
         Invoke-UiCommand {
@@ -38421,32 +38421,32 @@ $btnAppxRemoveSel.Add_Click({
                 }
             }
         } "Removing selected apps..." -ArgumentList $selected
-    })
+    }) }
 
-$btnAppxRemoveAll.Add_Click({
+if ($btnAppxRemoveAll) { $btnAppxRemoveAll.Add_Click({
         if ((Show-WmtMessageBox -Message "Remove ALL listed apps? This cannot be undone easily." -Title "Confirm" -Button YesNo -Image Warning) -eq [System.Windows.MessageBoxResult]::Yes) {
             $btnAppxRemoveSel.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
         }
-    })
+    }) }
 
 # --- WINDOWS FEATURES TOGGLE ---
-$btnFeatHyperV.Add_Click({ Switch-WindowsFeature "Microsoft-Hyper-V-All" "Hyper-V" }) ; Update-SingleFeatureButtonState "btnFeatHyperV" "Microsoft-Hyper-V-All"
-$btnFeatWSL.Add_Click({ Switch-WindowsFeature "Microsoft-Windows-Subsystem-Linux" "WSL" }) ; Update-SingleFeatureButtonState "btnFeatWSL" "Microsoft-Windows-Subsystem-Linux"
-$btnFeatSandbox.Add_Click({ Switch-WindowsFeature "Containers-DisposableClientVM" "Windows Sandbox" }) ; Update-SingleFeatureButtonState "btnFeatSandbox" "Containers-DisposableClientVM"
-$btnFeatDotNet35.Add_Click({ Switch-WindowsFeature "NetFx3" ".NET Framework 3.5" }) ; Update-SingleFeatureButtonState "btnFeatDotNet35" "NetFx3"
-$btnFeatNFS.Add_Click({ Switch-WindowsFeature "ServicesForNFS-ClientOnly" "NFS Client" }) ; Update-SingleFeatureButtonState "btnFeatNFS" "ServicesForNFS-ClientOnly"
-$btnFeatTelnet.Add_Click({ Switch-WindowsFeature "TelnetClient" "Telnet Client" }) ; Update-SingleFeatureButtonState "btnFeatTelnet" "TelnetClient"
-$btnFeatIIS.Add_Click({ Switch-WindowsFeature "IIS-WebServerRole" "IIS Web Server" }) ; Update-SingleFeatureButtonState "btnFeatIIS" "IIS-WebServerRole"
-$btnFeatLegacy.Add_Click({ Switch-WindowsFeature "WindowsMediaPlayer" "Legacy Media" }) ; Update-SingleFeatureButtonState "btnFeatLegacy" "WindowsMediaPlayer"
-$btnFeatVMP.Add_Click({ Switch-WindowsFeature "VirtualMachinePlatform" "Virtual Machine Platform" }) ; Update-SingleFeatureButtonState "btnFeatVMP" "VirtualMachinePlatform"
-$btnFeatWHP.Add_Click({ Switch-WindowsFeature "HypervisorPlatform" "Windows Hypervisor Platform" }) ; Update-SingleFeatureButtonState "btnFeatWHP" "HypervisorPlatform"
-$btnFeatSSHClient.Add_Click({ Switch-WindowsFeature "OpenSSH.Client" "OpenSSH Client" }) ; Update-SingleFeatureButtonState "btnFeatSSHClient" "OpenSSH.Client"
-$btnFeatSSHServer.Add_Click({ Switch-WindowsFeature "OpenSSH.Server" "OpenSSH Server" }) ; Update-SingleFeatureButtonState "btnFeatSSHServer" "OpenSSH.Server"
-$btnFeatAppGuard.Add_Click({ Switch-WindowsFeature "Windows-Defender-ApplicationGuard" "Microsoft Defender Application Guard" }) ; Update-SingleFeatureButtonState "btnFeatAppGuard" "Windows-Defender-ApplicationGuard"
-$btnFeatMiracast.Add_Click({ Switch-WindowsFeature "WirelessDisplay" "Wireless Display" }) ; Update-SingleFeatureButtonState "btnFeatMiracast" "WirelessDisplay"
-$btnFeatQuickAssist.Add_Click({ Switch-WindowsFeature "QuickAssist" "Quick Assist" }) ; Update-SingleFeatureButtonState "btnFeatQuickAssist" "QuickAssist"
-$btnFeatXPS.Add_Click({ Switch-WindowsFeature "XpsViewer" "XPS Viewer" }) ; Update-SingleFeatureButtonState "btnFeatXPS" "XpsViewer"
-$btnFeatTIFF.Add_Click({ Switch-WindowsFeature "TIFFIFilter" "Windows TIFF IFilter" }) ; Update-SingleFeatureButtonState "btnFeatTIFF" "TIFFIFilter"
+if ($btnFeatHyperV) { $btnFeatHyperV.Add_Click({ Switch-WindowsFeature "Microsoft-Hyper-V-All" "Hyper-V" }) } ; Update-SingleFeatureButtonState "btnFeatHyperV" "Microsoft-Hyper-V-All"
+if ($btnFeatWSL) { $btnFeatWSL.Add_Click({ Switch-WindowsFeature "Microsoft-Windows-Subsystem-Linux" "WSL" }) } ; Update-SingleFeatureButtonState "btnFeatWSL" "Microsoft-Windows-Subsystem-Linux"
+if ($btnFeatSandbox) { $btnFeatSandbox.Add_Click({ Switch-WindowsFeature "Containers-DisposableClientVM" "Windows Sandbox" }) } ; Update-SingleFeatureButtonState "btnFeatSandbox" "Containers-DisposableClientVM"
+if ($btnFeatDotNet35) { $btnFeatDotNet35.Add_Click({ Switch-WindowsFeature "NetFx3" ".NET Framework 3.5" }) } ; Update-SingleFeatureButtonState "btnFeatDotNet35" "NetFx3"
+if ($btnFeatNFS) { $btnFeatNFS.Add_Click({ Switch-WindowsFeature "ServicesForNFS-ClientOnly" "NFS Client" }) } ; Update-SingleFeatureButtonState "btnFeatNFS" "ServicesForNFS-ClientOnly"
+if ($btnFeatTelnet) { $btnFeatTelnet.Add_Click({ Switch-WindowsFeature "TelnetClient" "Telnet Client" }) } ; Update-SingleFeatureButtonState "btnFeatTelnet" "TelnetClient"
+if ($btnFeatIIS) { $btnFeatIIS.Add_Click({ Switch-WindowsFeature "IIS-WebServerRole" "IIS Web Server" }) } ; Update-SingleFeatureButtonState "btnFeatIIS" "IIS-WebServerRole"
+if ($btnFeatLegacy) { $btnFeatLegacy.Add_Click({ Switch-WindowsFeature "WindowsMediaPlayer" "Legacy Media" }) } ; Update-SingleFeatureButtonState "btnFeatLegacy" "WindowsMediaPlayer"
+if ($btnFeatVMP) { $btnFeatVMP.Add_Click({ Switch-WindowsFeature "VirtualMachinePlatform" "Virtual Machine Platform" }) } ; Update-SingleFeatureButtonState "btnFeatVMP" "VirtualMachinePlatform"
+if ($btnFeatWHP) { $btnFeatWHP.Add_Click({ Switch-WindowsFeature "HypervisorPlatform" "Windows Hypervisor Platform" }) } ; Update-SingleFeatureButtonState "btnFeatWHP" "HypervisorPlatform"
+if ($btnFeatSSHClient) { $btnFeatSSHClient.Add_Click({ Switch-WindowsFeature "OpenSSH.Client" "OpenSSH Client" }) } ; Update-SingleFeatureButtonState "btnFeatSSHClient" "OpenSSH.Client"
+if ($btnFeatSSHServer) { $btnFeatSSHServer.Add_Click({ Switch-WindowsFeature "OpenSSH.Server" "OpenSSH Server" }) } ; Update-SingleFeatureButtonState "btnFeatSSHServer" "OpenSSH.Server"
+if ($btnFeatAppGuard) { $btnFeatAppGuard.Add_Click({ Switch-WindowsFeature "Windows-Defender-ApplicationGuard" "Microsoft Defender Application Guard" }) } ; Update-SingleFeatureButtonState "btnFeatAppGuard" "Windows-Defender-ApplicationGuard"
+if ($btnFeatMiracast) { $btnFeatMiracast.Add_Click({ Switch-WindowsFeature "WirelessDisplay" "Wireless Display" }) } ; Update-SingleFeatureButtonState "btnFeatMiracast" "WirelessDisplay"
+if ($btnFeatQuickAssist) { $btnFeatQuickAssist.Add_Click({ Switch-WindowsFeature "QuickAssist" "Quick Assist" }) } ; Update-SingleFeatureButtonState "btnFeatQuickAssist" "QuickAssist"
+if ($btnFeatXPS) { $btnFeatXPS.Add_Click({ Switch-WindowsFeature "XpsViewer" "XPS Viewer" }) } ; Update-SingleFeatureButtonState "btnFeatXPS" "XpsViewer"
+if ($btnFeatTIFF) { $btnFeatTIFF.Add_Click({ Switch-WindowsFeature "TIFFIFilter" "Windows TIFF IFilter" }) } ; Update-SingleFeatureButtonState "btnFeatTIFF" "TIFFIFilter"
 
 
 function Set-WmtDisplayScale {
@@ -38493,7 +38493,7 @@ function Switch-WindowsFeature($FeatureName, $DisplayName) {
         if (-not (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue)) {
             Write-GuiLog "PowerShell feature cmdlets unavailable; trying DISM fallback..."
             $featureInfo = Invoke-WmtCliText -FilePath "dism" -Arguments "/Online /Get-FeatureInfo /FeatureName:$fn"
-            if ($featureInfo -match "State\\s*:\\s*Enabled") {
+            if ($featureInfo -match 'State\s*:\s*Enabled') {
                 dism /Online /Disable-Feature /FeatureName:$fn /NoRestart | Out-Null
                 if ($LASTEXITCODE -eq 0) { Write-GuiLog "Disabled: $dn (DISM)" }
                 else { throw "DISM failed to disable $dn (code $LASTEXITCODE)." }
@@ -38514,7 +38514,7 @@ function Switch-WindowsFeature($FeatureName, $DisplayName) {
 
             Write-GuiLog "$dn not detected via PowerShell; trying DISM fallback..."
             $featureInfo = Invoke-WmtCliText -FilePath "dism" -Arguments "/Online /Get-FeatureInfo /FeatureName:$fn"
-            if ($featureInfo -match "State\\s*:\\s*Enabled") {
+            if ($featureInfo -match 'State\s*:\s*Enabled') {
                 dism /Online /Disable-Feature /FeatureName:$fn /NoRestart | Out-Null
                 if ($LASTEXITCODE -eq 0) { Write-GuiLog "Disabled: $dn (DISM)" }
                 else { throw "DISM failed to disable $dn (code $LASTEXITCODE)." }
@@ -38539,12 +38539,10 @@ function Switch-WindowsFeature($FeatureName, $DisplayName) {
 }
 
 # --- SERVICES MANAGEMENT ---
-$btnSvcOptimize.Add_Click({ $btnPerfServicesManual.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) })
-$btnSvcRestore.Add_Click({ $btnPerfServicesRevert.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) })
+if ($btnSvcOptimize) { $btnSvcOptimize.Add_Click({ $btnPerfServicesManual.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }) }
+if ($btnSvcRestore) { $btnSvcRestore.Add_Click({ $btnPerfServicesRevert.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }) }
 
-$btnSvcView.Add_Click({
-        Get-Service | Select-Object Name, DisplayName, StartType, Status | Out-GridView -Title "Windows Services"
-    })
+if ($btnSvcView) { $btnSvcView.Add_Click({ Show-StartupManager -DefaultTab "Services" }) }
 
 # --- SCHEDULED TASKS WITH REVERT ---
 $script:TelemetryTasks = @(
@@ -38559,7 +38557,7 @@ $script:TelemetryTasks = @(
     "\Microsoft\Windows\Windows Error Reporting\QueueReporting"
 )
 
-$btnTasksDisableTelemetry.Add_Click({
+if ($btnTasksDisableTelemetry) { $btnTasksDisableTelemetry.Add_Click({
         Invoke-UiCommand {
             param($tasks)
             foreach ($task in $tasks) {
@@ -38573,9 +38571,9 @@ $btnTasksDisableTelemetry.Add_Click({
             }
             Write-GuiLog "Telemetry tasks disabled!"
         } "Disabling telemetry tasks..." -ArgumentList $script:TelemetryTasks
-    })
+    }) }
 
-$btnTasksRestore.Add_Click({
+if ($btnTasksRestore) { $btnTasksRestore.Add_Click({
         Invoke-UiCommand {
             param($tasks)
             foreach ($task in $tasks) {
@@ -38589,14 +38587,14 @@ $btnTasksRestore.Add_Click({
             }
             Write-GuiLog "Telemetry tasks restored!"
         } "Restoring telemetry tasks..." -ArgumentList $script:TelemetryTasks
-    })
+    }) }
 
-$btnTasksView.Add_Click({
+if ($btnTasksView) { $btnTasksView.Add_Click({
         Show-WmtScheduledTasksDialog -Title "Telemetry Tasks" -FullPaths $script:TelemetryTasks
-    })
+    }) }
 
 # --- WINDOWS UPDATE PRESETS ---
-$btnWUDefault.Add_Click({
+if ($btnWUDefault) { $btnWUDefault.Add_Click({
         Invoke-UiCommand {
             Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
             Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DeferFeatureUpdates" -ErrorAction SilentlyContinue
@@ -38605,9 +38603,9 @@ $btnWUDefault.Add_Click({
             Start-Service -Name wuauserv -ErrorAction SilentlyContinue
             Write-GuiLog "Windows Update set to Default."
         } "Applying default Windows Update settings..."
-    })
+    }) }
 
-$btnWUSecurity.Add_Click({
+if ($btnWUSecurity) { $btnWUSecurity.Add_Click({
         Invoke-UiCommand {
             New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Force | Out-Null
             Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DeferFeatureUpdates" -Value 1
@@ -38616,9 +38614,9 @@ $btnWUSecurity.Add_Click({
             Set-Service -Name wuauserv -StartupType Automatic -ErrorAction SilentlyContinue
             Write-GuiLog "Windows Update set to Security Only (deferring features)."
         } "Applying security-only update settings..."
-    })
+    }) }
 
-$btnWUDisable.Add_Click({
+if ($btnWUDisable) { $btnWUDisable.Add_Click({
         if ((Show-WmtMessageBox -Message "Disable ALL Windows Updates? This is not recommended for security." -Title "Warning" -Button YesNo -Image Warning) -eq [System.Windows.MessageBoxResult]::Yes) {
             Invoke-UiCommand {
                 Set-Service -Name wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
@@ -38628,7 +38626,7 @@ $btnWUDisable.Add_Click({
                 Write-GuiLog "Windows Update DISABLED."
             } "Disabling Windows Update..."
         }
-    })
+    }) }
 
 # --- Taskbar & Clock Tweaks Logic ---
 $btnToggleTaskbarAlign = Get-Ctrl "btnToggleTaskbarAlign"
