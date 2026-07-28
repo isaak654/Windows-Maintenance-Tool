@@ -1980,7 +1980,12 @@ function Start-MyDeviceSectionJob {
     $pool = Get-WmtBackgroundRunspacePool
     $ps = [PowerShell]::Create()
     $ps.RunspacePool = $pool
-    [void]$ps.AddScript($Body)
+
+    # Bulletproof fix: Inject the helper functions directly into the script block.
+    # This completely bypasses the fragile regex parser that was failing to load them.
+    $fullScript = $script:MyDeviceCommonHelpers + "`n" + $Body
+    [void]$ps.AddScript($fullScript)
+
     $async = $ps.BeginInvoke()
     $script:MyDeviceSectionJobs[$Name] = [pscustomobject]@{
         Name       = $Name
@@ -2041,12 +2046,18 @@ function Update-MyDeviceStats {
                 if ($job.Async.IsCompleted) {
                     try {
                         $data = $job.PowerShell.EndInvoke($job.Async)
-                        if ($data -is [System.Collections.ObjectModel.Collection[PSObject]]) { $data = $data[0] }
+                        if ($data -is [System.Collections.ObjectModel.Collection[PSObject]] -and $data.Count -gt 0) { $data = $data[-1] }
                         if ($data) {
                             Set-MyDeviceSectionData -Data $data
                             Set-MyDeviceCacheEntry -Section $key -Data $data
                             $elapsed = [math]::Round(((Get-Date) - $job.StartedAt).TotalSeconds, 1)
                             if (-not $script:MyDeviceStatsPreloadMode) { Write-GuiLog "[My Device] $key loaded in ${elapsed}s." }
+                        }
+                        else {
+                            $errStream = $job.PowerShell.Streams.Error | ForEach-Object { $_.ToString() }
+                            $errMsg = ($errStream -join "; ")
+                            if (-not $errMsg) { $errMsg = "(no error output)" }
+                            Write-GuiLog "[My Device] $key returned no data. Error: $errMsg"
                         }
                     }
                     catch {
@@ -2147,7 +2158,7 @@ function Start-MyDeviceBitLockerStatusUpdate {
                     }
                     else {
                         $status = $script:BitLockerStatusRunspace.EndInvoke($script:BitLockerStatusAsyncResult)
-                        if ($status -is [System.Collections.ObjectModel.Collection[PSObject]]) { $status = [string]$status[0] }
+                        if ($status -is [System.Collections.ObjectModel.Collection[PSObject]] -and $status.Count -gt 0) { $status = [string]$status[-1] }
                     }
                     if ([string]::IsNullOrWhiteSpace([string]$status)) { $status = "Unavailable" }
 
@@ -8385,8 +8396,8 @@ function Show-WmtAdvancedCleanupSelectionWpf {
                         $btnEventLogs.Content = "Clear Event Logs"
                         try {
                             $clearedCount = $script:EventLogRunspace.EndInvoke($script:EventLogAsyncResult)
-                            if ($clearedCount -is [System.Collections.ObjectModel.Collection[PSObject]]) {
-                                $clearedCount = $clearedCount[0]
+                            if ($clearedCount -is [System.Collections.ObjectModel.Collection[PSObject]] -and $clearedCount.Count -gt 0) {
+                                $clearedCount = $clearedCount[-1]
                             }
                             Show-WmtMessageBox -Owner $dialog -Message "Successfully processed $clearedCount Event Logs." -Title "Success" -Image Information | Out-Null
                         }
