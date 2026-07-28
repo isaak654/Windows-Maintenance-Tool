@@ -24643,6 +24643,30 @@ function Update-WmtTweakToggle {
     }
 }
 
+# Disables a tweak button and sets a tooltip explaining why it is unsupported
+# on the current system. Returns $true if supported, $false if disabled.
+function Set-WmtTweakSupportState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Windows.FrameworkElement]$Control,
+
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$PrerequisiteCheck,
+
+        [string]$UnsupportedReason = "This tweak is not supported on your version of Windows."
+    )
+
+    $isSupported = try { [bool](& $PrerequisiteCheck) } catch { $false }
+
+    if (-not $isSupported) {
+        $Control.IsEnabled = $false
+        $Control.Opacity = 0.45
+        $Control.ToolTip = $UnsupportedReason
+    }
+
+    return $isSupported
+}
+
 # Fast .NET registry reader — uses Microsoft.Win32.Registry instead of Get-ItemProperty
 # This is ~10x faster than Get-ItemProperty for bulk reads
 function Read-WmtRegValuesFast {
@@ -25376,6 +25400,51 @@ function Update-TweakButtonStates {
         catch {}
         $btnToggleDrvUpdates = Get-Ctrl "btnToggleDrvUpdates"
         Update-WmtTweakToggle $btnToggleDrvUpdates $drvWUDisabled "Enable Auto-Drivers" "Disable Auto-Drivers" "Toggle automatic driver updates via Windows Update."
+
+        # ── Unsupported-tweak support checks ──────────────────────────
+        # Disable buttons whose target registry key / feature no longer
+        # exists on the current Windows build so users don't get confused.
+        $btn3D = Get-Ctrl "btnToggle3DObjects"
+        if ($btn3D) {
+            Set-WmtTweakSupportState -Control $btn3D -PrerequisiteCheck {
+                Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}"
+            } -UnsupportedReason "The 3D Objects shell folder has been removed in your version of Windows 11."
+        }
+
+        $btnChat = Get-Ctrl "btnToggleChat"
+        if ($btnChat) {
+            Set-WmtTweakSupportState -Control $btnChat -PrerequisiteCheck {
+                Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn"
+            } -UnsupportedReason "The Chat (Microsoft Teams) taskbar button has been removed in your version of Windows 11."
+        }
+
+        $btnWidgets = Get-Ctrl "btnToggleWidgets"
+        if ($btnWidgets) {
+            Set-WmtTweakSupportState -Control $btnWidgets -PrerequisiteCheck {
+                $null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -ErrorAction SilentlyContinue)
+            } -UnsupportedReason "The Widgets panel has been removed or deprecated in your version of Windows 11."
+        }
+
+        $btnActivity = Get-Ctrl "btnToggleActivity"
+        if ($btnActivity) {
+            Set-WmtTweakSupportState -Control $btnActivity -PrerequisiteCheck {
+                Test-Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory"
+            } -UnsupportedReason "Activity History / Timeline has been removed in your version of Windows 11."
+        }
+
+        $btnCEIP = Get-Ctrl "btnToggleCEIP"
+        if ($btnCEIP) {
+            Set-WmtTweakSupportState -Control $btnCEIP -PrerequisiteCheck {
+                Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows"
+            } -UnsupportedReason "The Customer Experience Improvement Program (CEIP) is no longer present on your system."
+        }
+
+        $btnSpeech = Get-Ctrl "btnToggleSpeechOnline"
+        if ($btnSpeech) {
+            Set-WmtTweakSupportState -Control $btnSpeech -PrerequisiteCheck {
+                $null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Speech_OneSet" -Name "AcceptPrivacyNotice" -ErrorAction SilentlyContinue)
+            } -UnsupportedReason "Online speech recognition settings are no longer available on your version of Windows."
+        }
     }
     catch {
         try { Write-GuiLog "[Tweak States] Warning: $($_.Exception.Message)" } catch {}
@@ -26078,6 +26147,7 @@ if ($btnToggleOneDriveFolder) {
 $btnToggle3DObjects = Get-Ctrl "btnToggle3DObjects"
 if ($btnToggle3DObjects) {
     $btnToggle3DObjects.Add_Click({
+            if (-not $btnToggle3DObjects.IsEnabled) { return }
             $p = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FolderDescriptions\{31C0DD25-9439-4F12-BF41-7FF4EDA38762}\PropertyBag"
             Clear-WmtRegCache @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FolderDescriptions\{31C0DD25-9439-4F12-BF41-7FF4EDA38762}\PropertyBag")
             $currentlyHidden = (((ConvertTo-Str (Get-WmtRegValue $p "ThisPCPolicy" "Show") "") -ne "Show"))
@@ -26535,6 +26605,7 @@ if ($btnToggleInkingPersonal) {
 $btnToggleSpeechOnline = Get-Ctrl "btnToggleSpeechOnline"
 if ($btnToggleSpeechOnline) {
     $btnToggleSpeechOnline.Add_Click({
+            if (-not $btnToggleSpeechOnline.IsEnabled) { return }
             $p = "HKCU:\Software\Microsoft\Speech_OneSet"
             Clear-WmtRegCache @("HKCU:\Software\Microsoft\Speech_OneSet")
             $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $p "AcceptPrivacyNotice" 1) 0) -eq 0))
@@ -26615,6 +26686,7 @@ if ($btnToggleCompatTelemetry) {
 $btnToggleCEIP = Get-Ctrl "btnToggleCEIP"
 if ($btnToggleCEIP) {
     $btnToggleCEIP.Add_Click({
+            if (-not $btnToggleCEIP.IsEnabled) { return }
             $p = "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows"
             Clear-WmtRegCache @("HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows")
             $currentlyOff = (((ConvertTo-Str (Get-WmtRegValue $p "CEIPEnable" "1") "") -ne "1"))
@@ -38742,6 +38814,7 @@ if ($btnToggleTailored) {
 $btnToggleActivity = Get-Ctrl "btnToggleActivity"
 if ($btnToggleActivity) {
     $btnToggleActivity.Add_Click({
+            if (-not $btnToggleActivity.IsEnabled) { return }
             $p = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"
             Clear-WmtRegCache @("HKLM:\SOFTWARE\Policies\Microsoft\Windows\System")
             $currentlyOff = ((ConvertTo-Int (Get-WmtRegValue $p "EnableActivityFeed" 1) 0) -eq 0 -and (ConvertTo-Int (Get-WmtRegValue $p "PublishUserActivities" 1) 0) -eq 0 -and (ConvertTo-Int (Get-WmtRegValue $p "UploadUserActivities" 1) 0) -eq 0)
@@ -40061,6 +40134,7 @@ if ($btnToggleHags) {
 $btnToggleWidgets = Get-Ctrl "btnToggleWidgets"
 if ($btnToggleWidgets) {
     $btnToggleWidgets.Add_Click({
+            if (-not $btnToggleWidgets.IsEnabled) { return }
             Clear-WmtRegCache @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced")
             $currentlyHidden = ((ConvertTo-Int (Get-WmtRegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa" 1) 0) -eq 0)
             if ($currentlyHidden) {
@@ -40091,6 +40165,7 @@ if ($btnToggleTaskView) {
 $btnToggleChat = Get-Ctrl "btnToggleChat"
 if ($btnToggleChat) {
     $btnToggleChat.Add_Click({
+            if (-not $btnToggleChat.IsEnabled) { return }
             Clear-WmtRegCache @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced")
             $currentlyHidden = ((ConvertTo-Int (Get-WmtRegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarMn" 1) 0) -eq 0)
             if ($currentlyHidden) {
