@@ -6702,9 +6702,19 @@ Write-Host ""
 [void](Read-Host "Press Enter to close")
 '@
 
-    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($consoleScript))
-    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded" -WindowStyle Normal
-    Write-GuiLog "[CHKDSK] Opened live CHKDSK console window."
+    $tmpScript = Join-Path ([System.IO.Path]::GetTempPath()) "WMT_Chkdsk_$(Get-Random).ps1"
+    try {
+        $consoleScript | Set-Content -Path $tmpScript -Encoding UTF8 -Force
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$tmpScript`"" -WindowStyle Normal
+        Write-GuiLog "[CHKDSK] Opened live CHKDSK console window."
+    }
+    catch {
+        Write-GuiLog "[CHKDSK] Failed to launch: $($_.Exception.Message)"
+    }
+    # PowerShell reads -File scripts into memory before execution, so the temp
+    # file can be cleaned up on a short delay without breaking the child process.
+    Start-Sleep -Seconds 2
+    Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
 }
 # ==========================================
 # WINAPP2.INI INTEGRATION
@@ -7689,8 +7699,8 @@ function Show-WmtAdvancedCleanupSelectionWpf {
     $btnCancel = $dialog.FindName("btnCancel")
     $btnEventLogs = $dialog.FindName("btnEventLogs")
 
-    $chkToggleWinapp2.IsChecked = $isWinapp2Enabled
-    $chkToggleCleanerML.IsChecked = $isCleanerMlEnabled
+    if ($chkToggleWinapp2) { $chkToggleWinapp2.IsChecked = $isWinapp2Enabled }
+    if ($chkToggleCleanerML) { $chkToggleCleanerML.IsChecked = $isCleanerMlEnabled }
 
     $internalRules = @(
         [PSCustomObject]@{ Section = "System"; AppGroup = "Windows"; Name = "Temporary Files"; Key = "TempFiles"; Desc = "User and System Temp"; IsInternal = $true }
@@ -8099,23 +8109,23 @@ function Show-WmtAdvancedCleanupSelectionWpf {
     $dialog.Add_ContentRendered({ & $loadCommunityRulesIfEnabled }.GetNewClosure())
     $dialog.Add_Activated({ & $loadCommunityRulesIfEnabled }.GetNewClosure())
 
-    $chkToggleWinapp2.Add_Click({
+    if ($chkToggleWinapp2) { $chkToggleWinapp2.Add_Click({
             $currentSettings.LoadWinapp2 = [bool]$chkToggleWinapp2.IsChecked
             Save-WmtSettings -Settings $currentSettings
 
             $iniPath = Join-Path (Get-DataPath) "winapp2.ini"
             $forceDownload = [bool]$chkToggleWinapp2.IsChecked -and (-not (Test-Path $iniPath))
             & $loadExternalCleanerRules -ForceWinapp2Download:$forceDownload
-        }.GetNewClosure())
+        }.GetNewClosure()) }
 
-    $chkToggleCleanerML.Add_Click({
+    if ($chkToggleCleanerML) { $chkToggleCleanerML.Add_Click({
             $currentSettings.LoadCleanerML = [bool]$chkToggleCleanerML.IsChecked
             Save-WmtSettings -Settings $currentSettings
 
             $cachePath = Join-Path (Get-DataPath) "cleanerml_cache.json"
             $forceDownload = [bool]$chkToggleCleanerML.IsChecked -and ((Get-WmtBleachBitCleanerXmlDirectories).Count -eq 0) -and (-not (Test-Path $cachePath))
             & $loadExternalCleanerRules -ForceCleanerMlDownload:$forceDownload
-        }.GetNewClosure())
+        }.GetNewClosure()) }
 
     $searchDelayTimer = [System.Windows.Threading.DispatcherTimer]::new()
     $searchDelayTimer.Interval = [TimeSpan]::FromMilliseconds(250)
@@ -8178,11 +8188,11 @@ function Show-WmtAdvancedCleanupSelectionWpf {
         $dialog.DialogResult = $true
     }.GetNewClosure()
 
-    $btnClean.Add_Click({ & $submitCleanupSelection "Clean" }.GetNewClosure())
-    $btnAnalyze.Add_Click({ & $submitCleanupSelection "Analyze" }.GetNewClosure())
-    $btnCancel.Add_Click({ $dialog.Close() }.GetNewClosure())
+    if ($btnClean) { $btnClean.Add_Click({ & $submitCleanupSelection "Clean" }.GetNewClosure()) }
+    if ($btnAnalyze) { $btnAnalyze.Add_Click({ & $submitCleanupSelection "Analyze" }.GetNewClosure()) }
+    if ($btnCancel) { $btnCancel.Add_Click({ $dialog.Close() }.GetNewClosure()) }
 
-    $btnEventLogs.Add_Click({
+    if ($btnEventLogs) { $btnEventLogs.Add_Click({
             $confirm = Show-WmtMessageBox -Owner $dialog -Message "Clear all Windows Event Logs?`n`nThis safely flushes all registered Event Logs on your system.`n`nWARNING: This process can take several minutes to complete." -Title "Confirm Clear Logs" -Button YesNo -Image Warning
             if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
 
@@ -8223,7 +8233,7 @@ function Show-WmtAdvancedCleanupSelectionWpf {
                     }
                 }.GetNewClosure())
             $script:EventLogTimer.Start()
-        }.GetNewClosure())
+        }.GetNewClosure()) }
 
     $dialog.ShowDialog() | Out-Null
     return $selectionState.Result
@@ -17338,9 +17348,17 @@ Write-Host ""
 [void](Read-Host "Press Enter to close")
 '@
 
-    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($consoleScript))
-    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded" -WindowStyle Normal
-    Write-GuiLog "[Trim] Opened live SSD trim console window."
+    $tmpScript = Join-Path ([System.IO.Path]::GetTempPath()) "WMT_SsdTrim_$(Get-Random).ps1"
+    try {
+        $consoleScript | Set-Content -Path $tmpScript -Encoding UTF8 -Force
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$tmpScript`"" -WindowStyle Normal
+        Write-GuiLog "[Trim] Opened live SSD trim console window."
+    }
+    catch {
+        Write-GuiLog "[Trim] Failed to launch: $($_.Exception.Message)"
+    }
+    Start-Sleep -Seconds 2
+    Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
 }
 
 function Start-DiskManagementGui {
@@ -18954,11 +18972,11 @@ function Invoke-ExportDrivers {
         }
     }.GetNewClosure()
 
-    $lstClasses.Add_SelectionChanged({ & $refresh }.GetNewClosure())
-    $txtSearch.Add_TextChanged({ & $refresh }.GetNewClosure())
-    $btnExportSel.Add_Click({ & $exportDrivers -DriversToExport @($dg.SelectedItems) }.GetNewClosure())
-    $btnExportAll.Add_Click({ & $exportDrivers -DriversToExport @($drivers) }.GetNewClosure())
-    $btnClose.Add_Click({ $dialog.Close() }.GetNewClosure())
+    if ($lstClasses) { $lstClasses.Add_SelectionChanged({ & $refresh }.GetNewClosure()) }
+    if ($txtSearch) { $txtSearch.Add_TextChanged({ & $refresh }.GetNewClosure()) }
+    if ($btnExportSel) { $btnExportSel.Add_Click({ & $exportDrivers -DriversToExport @($dg.SelectedItems) }.GetNewClosure()) }
+    if ($btnExportAll) { $btnExportAll.Add_Click({ & $exportDrivers -DriversToExport @($drivers) }.GetNewClosure()) }
+    if ($btnClose) { $btnClose.Add_Click({ $dialog.Close() }.GetNewClosure()) }
     & $refresh
     $dialog.ShowDialog() | Out-Null
 }
@@ -19806,20 +19824,18 @@ Write-Host "Closing in 8 seconds..." -ForegroundColor Gray
 Start-Sleep -Seconds 8
 '@
 
+    $tmpScript = Join-Path ([System.IO.Path]::GetTempPath()) "WMT_QuickFix_$(Get-Random).ps1"
     try {
-        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($runner))
-        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded" -Verb RunAs -WindowStyle Normal
+        $runner | Set-Content -Path $tmpScript -Encoding UTF8 -Force
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$tmpScript`"" -Verb RunAs -WindowStyle Normal
         Write-GuiLog "Quick Fix launched (SFC + DISM + Temp cleanup)."
     }
     catch {
         Write-GuiLog "Quick Fix launch failed: $($_.Exception.Message)"
-        [System.Windows.MessageBox]::Show(
-            "Could not start Quick Fix: $($_.Exception.Message)",
-            "Quick Fix",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        ) | Out-Null
+        Show-WmtMessageBox -Message "Could not start Quick Fix: $($_.Exception.Message)" -Title "Quick Fix" -Button OK -Image Error | Out-Null
     }
+    Start-Sleep -Seconds 2
+    Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
 }
 
 # --- SYSTEM RESTORE MANAGER ---
@@ -21679,7 +21695,7 @@ function Set-Hags {
             Write-Output "Hardware-Accelerated GPU Scheduling (HAGS) enabled. Reboot required."
                 
             Set-WmtBusyCursor
-            [System.Windows.MessageBox]::Show("HAGS enabled successfully. Please restart your computer to apply the changes.", "HAGS Status", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
+            Show-WmtMessageBox -Message "HAGS enabled successfully. Please restart your computer to apply the changes." -Title "HAGS Status" -Image Information | Out-Null
         } "Enabling HAGS..."
     }
     else {
@@ -21691,7 +21707,7 @@ function Set-Hags {
             Write-Output "Hardware-Accelerated GPU Scheduling (HAGS) disabled. Reboot required."
                 
             Set-WmtBusyCursor
-            [System.Windows.MessageBox]::Show("HAGS disabled successfully. Please restart your computer to apply the changes.", "HAGS Status", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
+            Show-WmtMessageBox -Message "HAGS disabled successfully. Please restart your computer to apply the changes." -Title "HAGS Status" -Image Information | Out-Null
         } "Disabling HAGS..."
     }
 }
@@ -21720,7 +21736,7 @@ function Set-WmtRegDword {
     )
 
     if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type DWord -Force
+    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type DWord -Force -ErrorAction SilentlyContinue
 }
 
 function Set-WmtRegString {
@@ -21731,7 +21747,7 @@ function Set-WmtRegString {
     )
 
     if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Force
+    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Force -ErrorAction SilentlyContinue
 }
 
 function Remove-WmtRegValue {
@@ -24198,11 +24214,11 @@ function Invoke-MyDeviceExport {
         Set-Content -Path $outFile -Value $lines.ToArray() -Encoding UTF8
 
         Write-GuiLog "[My Device] Exported device summary to $outFile"
-        [System.Windows.MessageBox]::Show("My Device export saved to:`n$outFile", "Export Complete", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
+        Show-WmtMessageBox -Message "My Device export saved to:`n$outFile" -Title "Export Complete" -Image Information | Out-Null
     }
     catch {
         Write-GuiLog "[My Device] Export failed: $($_.Exception.Message)"
-        [System.Windows.MessageBox]::Show("Failed to export My Device details:`n$($_.Exception.Message)", "Export Failed", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
+        Show-WmtMessageBox -Message "Failed to export My Device details:`n$($_.Exception.Message)" -Title "Export Failed" -Image Error | Out-Null
     }
 }
 
@@ -25056,10 +25072,10 @@ function Update-TweakButtonStates {
             $btnToggleTakeOwnership.Add_Click({
                     $installed = Test-Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership"
                     if ($installed) {
-                        Invoke-UiCommand { Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Take Ownership context menu removed." } "Removing Take Ownership..."
+                        Invoke-UiCommand { Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership" -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Take Ownership context menu removed." } "Removing Take Ownership..."
                     }
                     else {
-                        Invoke-UiCommand { New-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; Write-GuiLog "Take Ownership context menu added." } "Adding Take Ownership..."
+                        Invoke-UiCommand { New-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; Write-GuiLog "Take Ownership context menu added (files, folders, drives)." } "Adding Take Ownership..."
                     }
                     Start-TweakButtonStatesDeferredUpdate
                 })
@@ -25649,7 +25665,6 @@ if ($btnDrvClean) { $btnDrvClean.Add_Click({ Show-DriverCleanupDialog }) }
 
 $btnDrvRestore = Get-Ctrl "btnDrvRestore"
 if ($btnDrvRestore) { $btnDrvRestore.Add_Click({ Invoke-RestoreDrivers }) }
-$btnToggleDrvUpdates = Get-Ctrl "btnToggleDrvUpdates"
 $btnToggleDrvMeta = Get-Ctrl "btnToggleDrvMeta"
 
 $btnCleanDisk = Get-Ctrl "btnCleanDisk"
@@ -27542,21 +27557,20 @@ $searchIndexDeferTimer.Add_Tick({
 $searchIndexDeferTimer.Start()
 Update-WmtSearchIndexEntries
 
-$txtGlobalSearch.Add_TextChanged({
+if ($txtGlobalSearch) { $txtGlobalSearch.Add_TextChanged({
         $q = $txtGlobalSearch.Text
         if ($q.Length -gt 1 -and $q -ne $script:QuickFindPlaceholder) {
-            $pnlNavButtons.Visibility = "Collapsed"
-            $lstSearchResults.Visibility = "Visible"
-            $lstSearchResults.Items.Clear()
+            if ($pnlNavButtons) { $pnlNavButtons.Visibility = "Collapsed" }
+            if ($lstSearchResults) { $lstSearchResults.Visibility = "Visible"; $lstSearchResults.Items.Clear() }
             foreach ($entry in $script:WmtSearchIndexEntries) {
                 if ($entry.Text.IndexOf($q, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                    [void]$lstSearchResults.Items.Add($entry.Text)
+                    if ($lstSearchResults) { [void]$lstSearchResults.Items.Add($entry.Text) }
                 }
             }
         }
-        else { $pnlNavButtons.Visibility = "Visible"; $lstSearchResults.Visibility = "Collapsed" }
-    })
-$lstSearchResults.Add_SelectionChanged({
+        else { if ($pnlNavButtons) { $pnlNavButtons.Visibility = "Visible" }; if ($lstSearchResults) { $lstSearchResults.Visibility = "Collapsed" } }
+    }) }
+if ($lstSearchResults) { $lstSearchResults.Add_SelectionChanged({
         if ($lstSearchResults.SelectedItem) {
             $match = $SearchIndex[$lstSearchResults.SelectedItem]
         
@@ -27580,7 +27594,7 @@ $lstSearchResults.Add_SelectionChanged({
             $txtGlobalSearch.Text = ""
             Set-WmtQuickFindForeground -TextBox $txtGlobalSearch
         }
-    })
+    }) }
 
 
 # WINGET CONTEXT MENU (Right-Click)
@@ -37439,7 +37453,7 @@ $btnHostsRestore.Add_Click({
 
 # --- FIREWALL ---
 # --- FIREWALL DOUBLE-CLICK MODIFY ---
-$lstFw.Add_MouseDoubleClick({
+if ($lstFw) { $lstFw.Add_MouseDoubleClick({
         $rule = $lstFw.SelectedItem
         if ($null -eq $rule) { return }
         Initialize-FirewallRuleDetails -Rule $rule -Synchronous
@@ -37462,7 +37476,7 @@ $lstFw.Add_MouseDoubleClick({
                 $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
             }
             catch {
-                [System.Windows.MessageBox]::Show("Failed to update rule:`n$($_.Exception.Message)", "Error", "OK", "Error")
+                Show-WmtMessageBox -Message "Failed to update rule:`n$($_.Exception.Message)" -Title "Error" -Image Error | Out-Null
             }
         }
     })
@@ -37522,6 +37536,7 @@ $mniCopyAll.Add_Click({
 
 # Attach to the ListView
 $lstFw.ContextMenu = $fwCtxMenu
+    }
 $script:AllFw = @()
 $script:FirewallRulesLoaded = $false
 $script:FirewallLoadInProgress = $false
@@ -37929,7 +37944,7 @@ function Start-FirewallRuleLoad {
     $script:FirewallLoadTimer.Start()
 }
 
-$btnFwRefresh.Add_Click({ Start-FirewallRuleLoad -Force })
+if ($btnFwRefresh) { $btnFwRefresh.Add_Click({ Start-FirewallRuleLoad -Force }) }
 
 if ($lstFw) {
     $lstFw.Add_SelectionChanged({
@@ -37972,20 +37987,22 @@ if ($lstFw) {
     $lstFw.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, $fwSortHandler, $true)
 }
 
-$txtFwSearch.Add_TextChanged({ Update-FirewallListView })
-$txtFwSearch.Add_GotFocus({
+if ($txtFwSearch) {
+    $txtFwSearch.Add_TextChanged({ Update-FirewallListView })
+    $txtFwSearch.Add_GotFocus({
         $t = $txtFwSearch
         if ($t.Text -in @("Search Rules...", "Search rules...")) { $t.Text = "" }
     })
-$btnFwAdd.Add_Click({ $d = Show-RuleDialog "Add Rule"; if ($d) { try { New-NetFirewallRule -DisplayName $d.Name -Direction $d.Direction -Action $d.Action -Protocol $d.Protocol -LocalPort $d.Port -ErrorAction Stop; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }catch { [System.Windows.MessageBox]::Show("Err: $_") } } })
-$btnFwEdit.Add_Click({ if ($lstFw.SelectedItem) { Initialize-FirewallRuleDetails -Rule $lstFw.SelectedItem -Synchronous; $d = Show-RuleDialog "Edit" $lstFw.SelectedItem; if ($d) { try { Set-NetFirewallRule -Name $lstFw.SelectedItem.Name -Direction $d.Direction -Action $d.Action -Protocol $d.Protocol -LocalPort $d.Port; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }catch { [System.Windows.MessageBox]::Show("Err: $_") } } } })
-$btnFwEnable.Add_Click({ if ($lstFw.SelectedItem) { Set-NetFirewallRule -Name $lstFw.SelectedItem.Name -Enabled True; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) } })
-$btnFwDisable.Add_Click({ if ($lstFw.SelectedItem) { Set-NetFirewallRule -Name $lstFw.SelectedItem.Name -Enabled False; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) } })
-$btnFwDelete.Add_Click({ if ($lstFw.SelectedItem) { Remove-NetFirewallRule -Name $lstFw.SelectedItem.Name; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) } })
-$btnFwExport.Add_Click({ Invoke-FirewallExport })
-$btnFwImport.Add_Click({ Invoke-FirewallImport; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) })
-$btnFwDefaults.Add_Click({ Invoke-FirewallDefaults; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) })
-$btnFwPurge.Add_Click({ Invoke-FirewallPurge; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) })
+}
+if ($btnFwAdd) { $btnFwAdd.Add_Click({ $d = Show-RuleDialog "Add Rule"; if ($d) { try { New-NetFirewallRule -DisplayName $d.Name -Direction $d.Direction -Action $d.Action -Protocol $d.Protocol -LocalPort $d.Port -ErrorAction Stop; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }catch { Show-WmtMessageBox -Message "Failed to add rule:`n$($_.Exception.Message)" -Title "Error" -Image Error | Out-Null } } }) }
+if ($btnFwEdit) { $btnFwEdit.Add_Click({ if ($lstFw.SelectedItem) { Initialize-FirewallRuleDetails -Rule $lstFw.SelectedItem -Synchronous; $d = Show-RuleDialog "Edit" $lstFw.SelectedItem; if ($d) { try { Set-NetFirewallRule -Name $lstFw.SelectedItem.Name -Direction $d.Direction -Action $d.Action -Protocol $d.Protocol -LocalPort $d.Port; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }catch { Show-WmtMessageBox -Message "Failed to update rule:`n$($_.Exception.Message)" -Title "Error" -Image Error | Out-Null } } } }) }
+if ($btnFwEnable) { $btnFwEnable.Add_Click({ if ($lstFw.SelectedItem) { try { Set-NetFirewallRule -Name $lstFw.SelectedItem.Name -Enabled True -ErrorAction Stop; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) } catch { Show-WmtMessageBox -Message "Failed to enable rule:`n$($_.Exception.Message)" -Title "Error" -Image Error | Out-Null } } }) }
+if ($btnFwDisable) { $btnFwDisable.Add_Click({ if ($lstFw.SelectedItem) { try { Set-NetFirewallRule -Name $lstFw.SelectedItem.Name -Enabled False -ErrorAction Stop; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) } catch { Show-WmtMessageBox -Message "Failed to disable rule:`n$($_.Exception.Message)" -Title "Error" -Image Error | Out-Null } } }) }
+if ($btnFwDelete) { $btnFwDelete.Add_Click({ if ($lstFw.SelectedItem) { try { Remove-NetFirewallRule -Name $lstFw.SelectedItem.Name -ErrorAction Stop; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) } catch { Show-WmtMessageBox -Message "Failed to delete rule:`n$($_.Exception.Message)" -Title "Error" -Image Error | Out-Null } } }) }
+if ($btnFwExport) { $btnFwExport.Add_Click({ Invoke-FirewallExport }) }
+if ($btnFwImport) { $btnFwImport.Add_Click({ Invoke-FirewallImport; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }) }
+if ($btnFwDefaults) { $btnFwDefaults.Add_Click({ Invoke-FirewallDefaults; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }) }
+if ($btnFwPurge) { $btnFwPurge.Add_Click({ Invoke-FirewallPurge; $btnFwRefresh.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) }) }
 
 # --- Drivers ---
 $btnToggleDrvUpdates = Get-Ctrl "btnToggleDrvUpdates"
@@ -38024,10 +38041,10 @@ if ($btnToggleDrvMeta) {
 }
 
 # --- Cleanup ---
-$btnCleanDisk.Add_Click({ Start-Process cleanmgr })
-$btnCleanTemp.Add_Click({ Invoke-TempCleanup })
-$btnCleanShortcuts.Add_Click({ Invoke-ShortcutFix })
-$btnCleanReg.Add_Click({ Invoke-RegistryTask -Action "DeepClean" })
+if ($btnCleanDisk) { $btnCleanDisk.Add_Click({ Start-Process cleanmgr }) }
+if ($btnCleanTemp) { $btnCleanTemp.Add_Click({ Invoke-TempCleanup }) }
+if ($btnCleanShortcuts) { $btnCleanShortcuts.Add_Click({ Invoke-ShortcutFix }) }
+if ($btnCleanReg) { $btnCleanReg.Add_Click({ Invoke-RegistryTask -Action "DeepClean" }) }
 # --- OneDrive Cleanup ---
 $btnCleanupOneDrive = Get-Ctrl "btnCleanupOneDrive"
 if ($btnCleanupOneDrive) {
@@ -38052,25 +38069,25 @@ if ($btnCleanupOneDrive) {
             } "Freeing OneDrive Space..."
         })
 }
-$btnCleanXbox.Add_Click({
-        if ([System.Windows.MessageBox]::Show("Delete stored Xbox credentials? This signs you out of Xbox services.", "Xbox Cleanup", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning) -eq "Yes") { Start-XboxClean }
-    })
+if ($btnCleanXbox) { $btnCleanXbox.Add_Click({
+        if (Show-WmtMessageBox -Message "Delete stored Xbox credentials? This signs you out of Xbox services." -Title "Xbox Cleanup" -Button YesNo -Image Warning -eq [System.Windows.MessageBoxResult]::Yes) { Start-XboxClean }
+    }) }
 
 # --- Utilities ---
-$btnUpdateServices.Add_Click({
-        $confirm = [System.Windows.MessageBox]::Show("Restart Windows Update related services (wuauserv/cryptsvc/bits/appidsvc)?", "Restart Update Services", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
-        if ($confirm -ne "Yes") { return }
+if ($btnUpdateServices) { $btnUpdateServices.Add_Click({
+        $confirm = Show-WmtMessageBox -Message "Restart Windows Update related services (wuauserv/cryptsvc/bits/appidsvc)?" -Title "Restart Update Services" -Button YesNo -Image Warning
+        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
         $script:UpdateSvcResult = $null
         Invoke-UpdateServiceReset
         if ($script:UpdateSvcResult -and $script:UpdateSvcResult -like "OK*") {
-            [System.Windows.MessageBox]::Show("Update services restarted successfully.", "Restart Update Services", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
+            Show-WmtMessageBox -Message "Update services restarted successfully." -Title "Restart Update Services" -Image Information | Out-Null
         }
         else {
             $msg = if ($script:UpdateSvcResult) { $script:UpdateSvcResult } else { "Unknown error. Check log output." }
-            [System.Windows.MessageBox]::Show("Failed to restart update services.`n$msg", "Restart Update Services", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
+            Show-WmtMessageBox -Message "Failed to restart update services.`n$msg" -Title "Restart Update Services" -Image Error | Out-Null
         }
-    })
-$btnDotNetEnable.Add_Click({
+    }) }
+if ($btnDotNetEnable) { $btnDotNetEnable.Add_Click({
         $res = [System.Windows.MessageBox]::Show("Set .NET roll-forward? This forces apps to use the latest installed .NET version (depending on selection).", "Set .NET RollForward", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
         if ($res -ne "Yes") { return }
 
@@ -38109,14 +38126,14 @@ $btnDotNetEnable.Add_Click({
             $choice = [string]$dialog.Tag
             Invoke-UiCommand { param($choice) Set-DotNetRollForward -Mode $choice } "Setting .NET roll-forward ($choice)..." -ArgumentList $choice
         }
-    })
-$btnDotNetDisable.Add_Click({
-        $res = [System.Windows.MessageBox]::Show("Remove .NET roll-forward and revert to default .NET selection?", "Reset .NET RollForward", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
-        if ($res -ne "Yes") { return }
+    }) }
+if ($btnDotNetDisable) { $btnDotNetDisable.Add_Click({
+        $res = Show-WmtMessageBox -Message "Remove .NET roll-forward and revert to default .NET selection?" -Title "Reset .NET RollForward" -Button YesNo -Image Warning
+        if ($res -ne [System.Windows.MessageBoxResult]::Yes) { return }
         Invoke-UiCommand { Set-DotNetRollForward -Mode "Disable" } "Removing .NET roll-forward..."
-    })
-$btnTaskManager.Add_Click({ Show-StartupManager -DefaultTab "Scheduled Tasks" })
-$btnInstallGpedit.Add_Click({ Start-GpeditInstall })
+    }) }
+if ($btnTaskManager) { $btnTaskManager.Add_Click({ Show-StartupManager -DefaultTab "Scheduled Tasks" }) }
+if ($btnInstallGpedit) { $btnInstallGpedit.Add_Click({ Start-GpeditInstall }) }
 $btnUtilResetGPU = Get-Ctrl "btnUtilResetGPU"
 if ($btnUtilResetGPU) {
     $btnUtilResetGPU.Add_Click({
@@ -38135,18 +38152,18 @@ if ($btnMyDeviceResetGPU) {
         })
 }
 
-$btnUtilTrim.Add_Click({
-        $res = [System.Windows.MessageBox]::Show("Run SSD Trim/ReTrim now? This will optimize all detected SSD volumes.", "Trim SSD", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
-        if ($res -ne "Yes") { return }
+if ($btnUtilTrim) { $btnUtilTrim.Add_Click({
+        $res = Show-WmtMessageBox -Message "Run SSD Trim/ReTrim now? This will optimize all detected SSD volumes." -Title "Trim SSD" -Button YesNo -Image Question
+        if ($res -ne [System.Windows.MessageBoxResult]::Yes) { return }
         Start-SSDTrimConsole
-    })
-$btnUtilSysInfo.Add_Click({ Invoke-SystemReports })
-$btnUtilWinRE.Add_Click({ Invoke-WinREStatusCheck })
-$btnUtilRestoreMgr.Add_Click({ Show-SystemRestoreManager })
-$btnUtilStartupMgr.Add_Click({ Show-StartupManager })
-$btnUtilMas.Add_Click({ Invoke-MASActivation })
-$btnUpdateRepair.Add_Click({ Invoke-WindowsUpdateRepairFull })
-$btnCtxBuilder.Add_Click({ Show-ContextMenuBuilder })
+    }) }
+if ($btnUtilSysInfo) { $btnUtilSysInfo.Add_Click({ Invoke-SystemReports }) }
+if ($btnUtilWinRE) { $btnUtilWinRE.Add_Click({ Invoke-WinREStatusCheck }) }
+if ($btnUtilRestoreMgr) { $btnUtilRestoreMgr.Add_Click({ Show-SystemRestoreManager }) }
+if ($btnUtilStartupMgr) { $btnUtilStartupMgr.Add_Click({ Show-StartupManager }) }
+if ($btnUtilMas) { $btnUtilMas.Add_Click({ Invoke-MASActivation }) }
+if ($btnUpdateRepair) { $btnUpdateRepair.Add_Click({ Invoke-WindowsUpdateRepairFull }) }
+if ($btnCtxBuilder) { $btnCtxBuilder.Add_Click({ Show-ContextMenuBuilder }) }
 
 # --- Support ---
 if ($btnSupportDiscord) { $btnSupportDiscord.Add_Click({ Start-Process "https://discord.gg/bCQqKHGxja" }) }
@@ -40047,12 +40064,13 @@ if ($btnToggleClockFormat) {
     $btnToggleClockFormat.Add_Click({
             $is24 = ((ConvertTo-Int (Get-WmtRegValue "HKCU:\Control Panel\International" "iTime" 0) 0) -eq 1)
             $intlPath = "HKCU:\Control Panel\International"
+            # Compile the P/Invoke once (shared by both branches)
+            Add-Type -Namespace Win32 -Name Native -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)] public static extern bool SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);' -ErrorAction SilentlyContinue
             if ($is24) {
                 Invoke-UiCommand {
                     Set-ItemProperty -Path $intlPath -Name "iTime" -Value 0 -Force
                     Set-ItemProperty -Path $intlPath -Name "sTimeFormat" -Value "h:mm tt" -Force
                     Set-ItemProperty -Path $intlPath -Name "sShortTime" -Value "h:mm tt" -Force
-                    Add-Type -Namespace Win32 -Name Native -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)] public static extern bool SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);' -ErrorAction SilentlyContinue
                     $HWND_BROADCAST = [IntPtr]0xffff
                     $WM_SETTINGCHANGE = 0x1A
                     $result = [IntPtr]::Zero
@@ -40065,7 +40083,6 @@ if ($btnToggleClockFormat) {
                     Set-ItemProperty -Path $intlPath -Name "iTime" -Value 1 -Force
                     Set-ItemProperty -Path $intlPath -Name "sTimeFormat" -Value "H:mm" -Force
                     Set-ItemProperty -Path $intlPath -Name "sShortTime" -Value "H:mm" -Force
-                    Add-Type -Namespace Win32 -Name Native -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)] public static extern bool SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);' -ErrorAction SilentlyContinue
                     $HWND_BROADCAST = [IntPtr]0xffff
                     $WM_SETTINGCHANGE = 0x1A
                     $result = [IntPtr]::Zero
