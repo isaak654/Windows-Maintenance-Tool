@@ -1620,6 +1620,31 @@ catch { $res.BatteryCharge = "Unavailable"; $res.BatteryStatus = "Unavailable"; 
 '@
 
 function Set-MyDeviceUiPlaceholders {
+    $disabled = Get-WmtDisableBackgroundJobs
+    if ($disabled) {
+        (Get-Ctrl "txtDeviceOS").Text = "My Device stats scanning is disabled."
+        (Get-Ctrl "txtDeviceCPU").Text = "My Device stats scanning is disabled."
+        (Get-Ctrl "txtDeviceRAM").Text = "My Device stats scanning is disabled."
+        Set-MyDeviceGpuCardsPlaceholder "My Device stats scanning is disabled."
+        (Get-Ctrl "txtDeviceMotherboard").Text = "My Device stats scanning is disabled."
+        (Get-Ctrl "txtDeviceStorage").Text = "My Device stats scanning is disabled."
+        (Get-Ctrl "txtDeviceNetwork").Text = "My Device stats scanning is disabled."
+        (Get-Ctrl "txtBatteryHealth").Text = "Health: Scanning disabled"
+        (Get-Ctrl "txtBatteryCharge").Text = "Charge: Scanning disabled"
+        (Get-Ctrl "txtBatteryStatus").Text = "Status: Scanning disabled"
+        (Get-Ctrl "txtPowerPlan").Text = "Power: Scanning disabled"
+        $batteryTimeCtrl = Get-Ctrl "txtBatteryTime"
+        if ($batteryTimeCtrl) { $batteryTimeCtrl.Text = "Time Remaining: Disabled"; $batteryTimeCtrl.Visibility = "Visible" }
+        (Get-Ctrl "txtPowerDraw").Text = "Power Draw: Scanning disabled"
+        (Get-Ctrl "txtPowerTotal").Text = "Total Power: Scanning disabled"
+        (Get-Ctrl "txtPowerElectrical").Text = "Electrical: Scanning disabled"
+        $storageList = Get-Ctrl "pnlDeviceStorageList"
+        if ($storageList) { $storageList.Children.Clear() }
+        $networkList = Get-Ctrl "pnlDeviceNetworkList"
+        if ($networkList) { $networkList.Children.Clear() }
+        return
+    }
+
     (Get-Ctrl "txtDeviceOS").Text = "Gathering OS/security/account stats..."
     (Get-Ctrl "txtDeviceCPU").Text = "Gathering CPU stats..."
     (Get-Ctrl "txtDeviceRAM").Text = "Gathering RAM stats..."
@@ -2047,7 +2072,7 @@ function Update-MyDeviceStats {
                 return
             }
         })
-    $script:StatsTimer.Start()
+    if (-not (Get-WmtDisableBackgroundJobs)) { $script:StatsTimer.Start() }
 }
 
 function Start-MyDeviceBitLockerStatusUpdate {
@@ -2218,7 +2243,9 @@ function Set-WmtThemeResources {
     foreach ($key in $Palette.Keys) {
         if ($key -eq "LogText") { continue }
         $color = [System.Windows.Media.ColorConverter]::ConvertFromString($Palette[$key])
-        $Element.Resources[$key] = [System.Windows.Media.SolidColorBrush]::new($color)
+        $brush = [System.Windows.Media.SolidColorBrush]::new($color)
+        $brush.Freeze()
+        $Element.Resources[$key] = $brush
     }
 }
 
@@ -3338,6 +3365,7 @@ function Open-MyDeviceDnsSettings {
     param([string]$AdapterName)
 
     if (-not [string]::IsNullOrWhiteSpace($AdapterName)) {
+        $shell = $null
         try {
             $shell = New-Object -ComObject Shell.Application
             $connections = $shell.Namespace(0x31)
@@ -3362,6 +3390,9 @@ function Open-MyDeviceDnsSettings {
         }
         catch {
             Write-GuiLog "[Network] Failed to open adapter DNS properties for $AdapterName`: $($_.Exception.Message)"
+        }
+        finally {
+            if ($shell) { try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null } catch {} }
         }
     }
 
@@ -4073,6 +4104,9 @@ function Save-WmtSettings {
             UpdateAutoInstallEnabled   = [bool](Get-WmtUpdateAutoInstallEnabled -Settings $Settings)
             RunInTrayOnClose           = [bool](Get-WmtRunInTrayOnClose -Settings $Settings)
             ReduceRamInTray            = [bool](Get-WmtReduceRamInTray -Settings $Settings)
+            DisableBackgroundJobs      = [bool](Get-WmtDisableBackgroundJobs -Settings $Settings)
+            UpdateScansDisabled         = [bool](Get-WmtUpdateScansDisabled -Settings $Settings)
+            SavedUpdateAutoScanMinutes  = (ConvertTo-Int (Get-WmtSavedUpdateAutoScanMinutes -Settings $Settings) 0)
             LoadWinapp2                = [bool]$Settings.LoadWinapp2
             LoadCleanerML              = [bool]$Settings.LoadCleanerML
             EnabledProviders           = $Settings.EnabledProviders
@@ -4117,6 +4151,9 @@ function Get-WmtSettings {
         UpdateAutoInstallEnabled   = $false
         RunInTrayOnClose           = $false
         ReduceRamInTray            = $true
+        DisableBackgroundJobs      = $false
+        UpdateScansDisabled         = $false
+        SavedUpdateAutoScanMinutes = 0
         LoadWinapp2                = $false 
         LoadCleanerML              = $false
         EnabledProviders           = @("winget", "msstore", "windowsupdate", "pip", "npm", "pnpm", "dotnet", "psmodule", "composer", "chocolatey", "scoop", "gem", "cargo", "steam", "legendary", "gogdl")
@@ -4161,6 +4198,12 @@ function Get-WmtSettings {
             if ($json.PSObject.Properties["UpdateAutoInstallEnabled"]) { $defaults.UpdateAutoInstallEnabled = [bool]$json.UpdateAutoInstallEnabled }
             if ($json.PSObject.Properties["RunInTrayOnClose"]) { $defaults.RunInTrayOnClose = [bool]$json.RunInTrayOnClose }
             if ($json.PSObject.Properties["ReduceRamInTray"]) { $defaults.ReduceRamInTray = [bool]$json.ReduceRamInTray }
+            if ($json.PSObject.Properties["DisableBackgroundJobs"]) { $defaults.DisableBackgroundJobs = [bool]$json.DisableBackgroundJobs }
+            if ($json.PSObject.Properties["UpdateScansDisabled"]) { $defaults.UpdateScansDisabled = [bool]$json.UpdateScansDisabled }
+            if ($json.PSObject.Properties["SavedUpdateAutoScanMinutes"]) {
+                try { $defaults.SavedUpdateAutoScanMinutes = [int]$json.SavedUpdateAutoScanMinutes } catch { $defaults.SavedUpdateAutoScanMinutes = 0 }
+                if ($defaults.SavedUpdateAutoScanMinutes -lt 0) { $defaults.SavedUpdateAutoScanMinutes = 0 }
+            }
             if ($json.PSObject.Properties["LoadWinapp2"]) { $defaults.LoadWinapp2 = [bool]$json.LoadWinapp2 }
             if ($json.PSObject.Properties["LoadCleanerML"]) { $defaults.LoadCleanerML = [bool]$json.LoadCleanerML }
             if ($json.PSObject.Properties["EnabledProviders"]) { $defaults.EnabledProviders = $json.EnabledProviders }
@@ -4450,6 +4493,151 @@ function Set-WmtReduceRamInTray {
     else {
         $settings | Add-Member -MemberType NoteProperty -Name "ReduceRamInTray" -Value $Enabled -Force
     }
+    Save-WmtSettings -Settings $settings
+}
+
+function Get-WmtDisableBackgroundJobs {
+    param($Settings)
+
+    if (-not $Settings) { $Settings = Get-WmtSettings }
+
+    try {
+        if ($Settings -is [System.Collections.IDictionary] -and $Settings.Contains("DisableBackgroundJobs")) {
+            return [bool]$Settings["DisableBackgroundJobs"]
+        }
+        if ($Settings.PSObject.Properties["DisableBackgroundJobs"]) {
+            return [bool]$Settings.DisableBackgroundJobs
+        }
+    }
+    catch {}
+
+    return $false
+}
+
+function Set-WmtDisableBackgroundJobs {
+    param([bool]$Enabled)
+
+    $settings = Get-WmtSettings
+    if ($settings -is [System.Collections.IDictionary]) {
+        $settings["DisableBackgroundJobs"] = $Enabled
+    }
+    elseif ($settings.PSObject.Properties["DisableBackgroundJobs"]) {
+        $settings.DisableBackgroundJobs = $Enabled
+    }
+    else {
+        $settings | Add-Member -MemberType NoteProperty -Name "DisableBackgroundJobs" -Value $Enabled -Force
+    }
+    Save-WmtSettings -Settings $settings
+}
+
+function Get-WmtUpdateScansDisabled {
+    param($Settings)
+
+    if (-not $Settings) { $Settings = Get-WmtSettings }
+
+    try {
+        if ($Settings -is [System.Collections.IDictionary] -and $Settings.Contains("UpdateScansDisabled")) {
+            return [bool]$Settings["UpdateScansDisabled"]
+        }
+        if ($Settings.PSObject.Properties["UpdateScansDisabled"]) {
+            return [bool]$Settings.UpdateScansDisabled
+        }
+    }
+    catch {}
+
+    return $false
+}
+
+function Get-WmtSavedUpdateAutoScanMinutes {
+    param($Settings)
+
+    if (-not $Settings) { $Settings = Get-WmtSettings }
+
+    try {
+        if ($Settings -is [System.Collections.IDictionary] -and $Settings.Contains("SavedUpdateAutoScanMinutes")) {
+            return [int]$Settings["SavedUpdateAutoScanMinutes"]
+        }
+        if ($Settings.PSObject.Properties["SavedUpdateAutoScanMinutes"]) {
+            return [int]$Settings.SavedUpdateAutoScanMinutes
+        }
+    }
+    catch {}
+
+    return 0
+}
+
+function Set-WmtUpdateScansDisabled {
+    param([bool]$Enabled)
+
+    $settings = Get-WmtSettings
+
+    if ($Enabled) {
+        # Save the current auto-scan interval so it can be restored later.
+        $currentMinutes = Get-WmtUpdateAutoScanMinutes -Settings $settings
+        if ($settings -is [System.Collections.IDictionary]) {
+            $settings["SavedUpdateAutoScanMinutes"] = $currentMinutes
+            $settings["UpdateScansDisabled"] = $true
+            $settings["UpdateAutoScanMinutes"] = 0
+        }
+        else {
+            if (-not $settings.PSObject.Properties["SavedUpdateAutoScanMinutes"]) {
+                $settings | Add-Member -MemberType NoteProperty -Name "SavedUpdateAutoScanMinutes" -Value $currentMinutes -Force
+            }
+            else {
+                $settings.SavedUpdateAutoScanMinutes = $currentMinutes
+            }
+            if (-not $settings.PSObject.Properties["UpdateScansDisabled"]) {
+                $settings | Add-Member -MemberType NoteProperty -Name "UpdateScansDisabled" -Value $true -Force
+            }
+            else {
+                $settings.UpdateScansDisabled = $true
+            }
+            if (-not $settings.PSObject.Properties["UpdateAutoScanMinutes"]) {
+                $settings | Add-Member -MemberType NoteProperty -Name "UpdateAutoScanMinutes" -Value 0 -Force
+            }
+            else {
+                $settings.UpdateAutoScanMinutes = 0
+            }
+        }
+        Stop-WmtUpdateAutoScanTimer
+    }
+    else {
+        # Restore the previously saved auto-scan interval.
+        $saved = 0
+        if ($settings -is [System.Collections.IDictionary]) {
+            if ($settings.Contains("SavedUpdateAutoScanMinutes")) {
+                try { $saved = [int]$settings["SavedUpdateAutoScanMinutes"] } catch { $saved = 0 }
+            }
+            $settings["UpdateAutoScanMinutes"] = $saved
+            $settings["UpdateScansDisabled"] = $false
+            $settings.Remove("SavedUpdateAutoScanMinutes")
+        }
+        else {
+            if ($settings.PSObject.Properties["SavedUpdateAutoScanMinutes"]) {
+                try { $saved = [int]$settings.SavedUpdateAutoScanMinutes } catch { $saved = 0 }
+            }
+            if (-not $settings.PSObject.Properties["UpdateScansDisabled"]) {
+                $settings | Add-Member -MemberType NoteProperty -Name "UpdateScansDisabled" -Value $false -Force
+            }
+            else {
+                $settings.UpdateScansDisabled = $false
+            }
+            if (-not $settings.PSObject.Properties["UpdateAutoScanMinutes"]) {
+                $settings | Add-Member -MemberType NoteProperty -Name "UpdateAutoScanMinutes" -Value $saved -Force
+            }
+            else {
+                $settings.UpdateAutoScanMinutes = $saved
+            }
+            # Clean up saved value after restore.
+            if ($settings.PSObject.Properties["SavedUpdateAutoScanMinutes"]) {
+                $settings.PSObject.Properties.Remove("SavedUpdateAutoScanMinutes")
+            }
+        }
+        Save-WmtSettings -Settings $settings
+        Start-WmtUpdateAutoScanTimer -ResetNextRun
+        return
+    }
+
     Save-WmtSettings -Settings $settings
 }
 
@@ -4848,6 +5036,10 @@ function Stop-WmtSingleInstanceActivationListener {
 function Invoke-WmtTrayUpdateScan {
     try {
         if (-not $window) { return }
+        if (Get-WmtUpdateScansDisabled) {
+            Write-GuiLog "Tray update scan skipped because update scans are disabled."
+            return
+        }
         $scanAction = [Action] {
             try {
                 Show-WmtMainWindowFromTray
@@ -23848,6 +24040,8 @@ function Set-WmtPowerSettingIndex {
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
                                 <Button Name="btnStartWithWindows" Content="Start with Windows" Style="{StaticResource ActionBtn}" Height="32" MinWidth="140" Margin="0,0,8,0" ToolTip="Launch WMT automatically when Windows starts"/>
+                                <Button Name="btnDisableBgJobs" Content="Bg Jobs: On" Style="{StaticResource ActionBtn}" Height="32" MinWidth="130" Margin="0,0,8,0" ToolTip="Background auto-refresh ENABLED. My Device info and Tweaks states load automatically. Click to disable."/>
+                                <Button Name="btnDisableUpdateScans" Content="Update Scans: On" Style="{StaticResource ActionBtn}" Height="32" MinWidth="150" Margin="0,0,8,0" ToolTip="Disable all automatic and tray-triggered update scans. Manual scans will still work. Click to toggle."/>
                                 <Button Name="btnToggleTheme" Content="Toggle Theme" Style="{StaticResource ActionBtn}" Height="32" MinWidth="112" ToolTip="Switch between dark and light theme"/>
                             </StackPanel>
                         </Grid>
@@ -25695,6 +25889,15 @@ function Open-GpuVendorControlPanel {
             if (-not $opened) {
                 try { Start-Process "nvcplui.exe"; $opened = $true } catch {}
             }
+            # Newer NVIDIA drivers (550+) ship the "NVIDIA App" instead of Control Panel.
+            if (-not $opened) { $opened = Start-ExistingExecutable @(
+                "$env:ProgramFiles\NVIDIA Corporation\NVIDIA App\NVIDIAApp.exe",
+                "${env:ProgramFiles(x86)}\NVIDIA Corporation\NVIDIA App\NVIDIAApp.exe"
+            ) }
+            if (-not $opened) { $opened = Start-AppByStartMenuName @("(?i)^NVIDIA App$", "(?i)NVIDIA.*App") }
+            if (-not $opened) {
+                try { Start-Process "NVIDIAApp.exe"; $opened = $true } catch {}
+            }
         }
         "AMD" {
             $opened = Start-ExistingExecutable @(
@@ -25852,31 +26055,42 @@ foreach ($tabButton in $script:WmtTabButtonControls) {
             $s.Tag = "Visible"  # Show indicator
             if ($s.Name -eq "btnTabFirewall") { Start-FirewallRuleLoad }
             if ($s.Name -eq "btnTabUpdates") {
-                if ($lstWinget.Items.Count -eq 0) { 
-                    $btnWingetScan.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) 
+                if ($lstWinget.Items.Count -eq 0 -and -not (Get-WmtUpdateScansDisabled)) {
+                    $btnWingetScan.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
                 }
             }
             if ($s.Name -eq "btnTabMyDevice") {
                 Update-MyDeviceResponsiveLayout
-                if (-not $script:MyDeviceStatsStarted) {
+                if (-not (Get-WmtDisableBackgroundJobs)) {
+                    if (-not $script:MyDeviceStatsStarted) {
+                        $script:MyDeviceStatsStarted = $true
+                        Update-MyDeviceStats
+                    }
+                    elseif ($script:MyDeviceStatsPreloadMode) {
+                        $script:MyDeviceStatsPreloadMode = $false
+                        $script:MyDeviceStatsMaxConcurrent = 4
+                        Start-MyDeviceQueuedSections
+                    }
+                }
+                elseif (-not $script:MyDeviceStatsStarted) {
+                    # Background jobs disabled — do a one-time synchronous load
                     $script:MyDeviceStatsStarted = $true
                     Update-MyDeviceStats
-                }
-                elseif ($script:MyDeviceStatsPreloadMode) {
-                    $script:MyDeviceStatsPreloadMode = $false
-                    $script:MyDeviceStatsMaxConcurrent = 4
-                    Start-MyDeviceQueuedSections
                 }
             }
             if ($s.Name -eq "btnTabTweaks") {
                 Update-TweaksResponsiveLayout
-                # Start Tweak States background load on first Tweaks tab visit
-                # (deferred from startup to avoid competing with My Device stats)
-                Start-TweakButtonStatesBackgroundUpdate
-                # Start Optional Features check on first Tweaks tab visit
-                Start-OptionalFeaturesBackgroundCheck
-                # Show loading overlay if cache isn't ready yet
-                if (-not $script:TweakStatesReady) { Set-TweakStatesLoadingOverlay -Visible $true }
+                if (-not (Get-WmtDisableBackgroundJobs)) {
+                    # Start Tweak States background load on first Tweaks tab visit
+                    Start-TweakButtonStatesBackgroundUpdate
+                    Start-OptionalFeaturesBackgroundCheck
+                    if (-not $script:TweakStatesReady) { Set-TweakStatesLoadingOverlay -Visible $true }
+                }
+                elseif (-not $script:TweakStatesReady) {
+                    # Background jobs disabled — do a one-time synchronous load
+                    Update-TweakButtonStates
+                    $script:TweakStatesReady = $true
+                }
             }
         })
 }
@@ -27263,6 +27477,12 @@ $searchIndexDeferTimer.Add_Tick({
         Add-SearchIndexEntry "btnSupportDiscord"    "Join Discord Support"            "btnTabSupport"
         Add-SearchIndexEntry "btnSupportIssue"      "Report an Issue (GitHub)"        "btnTabSupport"
         Add-SearchIndexEntry "btnToggleTheme"       "Toggle Theme"                    "btnTabSupport"
+        Add-SearchIndexEntry "btnDisableBgJobs"      "Background Jobs"                 "btnTabSupport"
+        Add-SearchIndexAction "Disable Background Jobs" { Set-WmtDisableBackgroundJobs -Enabled $true; $btn = Get-Ctrl "btnDisableBgJobs"; if ($btn) { $btn.Content = "Background Jobs: Off" }; Write-GuiLog "Background jobs disabled." } "btnTabSupport"
+        Add-SearchIndexAction "Enable Background Jobs"  { Set-WmtDisableBackgroundJobs -Enabled $false; $btn = Get-Ctrl "btnDisableBgJobs"; if ($btn) { $btn.Content = "Background Jobs: On" }; Write-GuiLog "Background jobs enabled." } "btnTabSupport"
+        Add-SearchIndexEntry "btnDisableUpdateScans"  "Update Scans"                    "btnTabSupport"
+        Add-SearchIndexAction "Disable Update Scans" { Set-WmtUpdateScansDisabled -Enabled $true; Update-WmtUpdateScansButton; Write-GuiLog "Update scans disabled." } "btnTabSupport"
+        Add-SearchIndexAction "Enable Update Scans"  { Set-WmtUpdateScansDisabled -Enabled $false; Update-WmtUpdateScansButton; Write-GuiLog "Update scans enabled." } "btnTabSupport"
         Add-SearchIndexEntry "btnStartWithWindows" "Start with Windows"              "btnTabSupport"
         Add-SearchIndexAction "Light Mode" { Set-WmtThemePreference -Theme "light" } "btnTabSupport"
         Add-SearchIndexAction "Dark Mode" { Set-WmtThemePreference -Theme "dark" }  "btnTabSupport"
@@ -33474,7 +33694,9 @@ exit `$exitCode
             }
 
             Save-WmtSettings -Settings $current
-            Start-WmtUpdateAutoScanTimer -ResetNextRun
+            if (-not (Get-WmtUpdateScansDisabled -Settings $current)) {
+                Start-WmtUpdateAutoScanTimer -ResetNextRun
+            }
             if (-not (Get-WmtRunInTrayOnClose -Settings $current)) { Remove-WmtTrayIcon }
             $win.Close()
         })
@@ -33685,6 +33907,8 @@ function Invoke-WmtUpdateAutoScan {
 
     $minutes = Get-WmtUpdateAutoScanMinutes
     if ($minutes -le 0 -and -not $Force) { return }
+
+    if (Get-WmtUpdateScansDisabled -and -not $Force) { return }
 
     if (Test-WmtUpdateAutoScanBusy) {
         if (Test-WmtPackageSearchActive) {
@@ -38248,6 +38472,68 @@ if ($btnStartWithWindows) {
             Update-WmtStartWithWindowsButton
         })
 }
+
+# ── Background Jobs Toggle ──
+$btnDisableBgJobs = Get-Ctrl "btnDisableBgJobs"
+if ($btnDisableBgJobs) {
+    function Update-WmtDisableBgJobsButton {
+        $btn = Get-Ctrl "btnDisableBgJobs"
+        if (-not $btn) { return }
+        $disabled = Get-WmtDisableBackgroundJobs
+        if ($disabled) {
+            $btn.Content = "Bg Jobs: Off"
+            $btn.ToolTip = "Background auto-refresh DISABLED. My Device info and Tweaks states will not auto-load. Click to re-enable."
+        }
+        else {
+            $btn.Content = "Bg Jobs: On"
+            $btn.ToolTip = "Background auto-refresh ENABLED. My Device info and Tweaks states load automatically. Click to disable."
+        }
+    }
+
+    Update-WmtDisableBgJobsButton
+
+    $btnDisableBgJobs.Add_Click({
+            $currentlyDisabled = Get-WmtDisableBackgroundJobs
+            Set-WmtDisableBackgroundJobs -Enabled (-not $currentlyDisabled)
+            Update-WmtDisableBgJobsButton
+            $newState = if (-not $currentlyDisabled) { 'enabled' } else { 'disabled' }
+            Write-GuiLog "Background jobs $newState. Changes take effect on next tab visit."
+        })
+}
+
+# ── Update Scans Toggle ──
+$btnDisableUpdateScans = Get-Ctrl "btnDisableUpdateScans"
+if ($btnDisableUpdateScans) {
+    function Update-WmtUpdateScansButton {
+        $btn = Get-Ctrl "btnDisableUpdateScans"
+        if (-not $btn) { return }
+        $disabled = Get-WmtUpdateScansDisabled
+        if ($disabled) {
+            $btn.Content = "Update Scans: Off"
+            $btn.ToolTip = "Update scans are DISABLED. No scans will run. Click to re-enable."
+            # Disable scan button and related update-action buttons.
+            $scanBtn = Get-Ctrl "btnWingetScan"
+            if ($scanBtn) { $scanBtn.IsEnabled = $false }
+        }
+        else {
+            $btn.Content = "Update Scans: On"
+            $btn.ToolTip = "Update scans are ENABLED. Automatic and tray-triggered scans run on schedule. Click to fully disable."
+            # Re-enable scan button.
+            $scanBtn = Get-Ctrl "btnWingetScan"
+            if ($scanBtn) { $scanBtn.IsEnabled = $true }
+        }
+    }
+
+    Update-WmtUpdateScansButton
+
+    $btnDisableUpdateScans.Add_Click({
+            $currentlyDisabled = Get-WmtUpdateScansDisabled
+            Set-WmtUpdateScansDisabled -Enabled (-not $currentlyDisabled)
+            Update-WmtUpdateScansButton
+            $newState = if (-not $currentlyDisabled) { 'disabled' } else { 'enabled' }
+            Write-GuiLog "Update scans $newState."
+        })
+}
 if ($btnDonate) { $btnDonate.Add_Click({ Start-Process "https://github.com/sponsors/Chaython" }) }
 
 if ($btnNavDownloads) { $btnNavDownloads.Add_Click({ Show-DownloadStats }) }
@@ -40734,7 +41020,9 @@ $onMainWindowContentRendered = {
             if (Get-WmtUpdateNotificationsEnabled -Settings $settings) {
                 [void](Initialize-WmtNativeToastSupport)
             }
-            Start-WmtUpdateAutoScanTimer -ResetNextRun
+            if (-not (Get-WmtDisableBackgroundJobs -Settings $settings) -and -not (Get-WmtUpdateScansDisabled -Settings $settings)) {
+                Start-WmtUpdateAutoScanTimer -ResetNextRun
+            }
         }
     )
 
@@ -41378,6 +41666,24 @@ $onMainWindowClosing = {
     Stop-FirewallDetailLoad
     Stop-MyDeviceSectionJobs
     Stop-WmtDnsRunspaces
+    # Clean up search runspace + timer (in-flight package searches)
+    if ($script:SearchTimer) { try { $script:SearchTimer.Stop() } catch {} }
+    if ($script:AsyncPowerShell) {
+        try { $script:AsyncPowerShell.Stop() } catch {}
+        try { $script:AsyncPowerShell.Dispose() } catch {}
+        $script:AsyncPowerShell = $null
+    }
+    $script:AsyncSearch = $null
+    # Clean up tweak states background preload
+    if ($script:TweakStatesBgTimer) { try { $script:TweakStatesBgTimer.Stop() } catch {} }
+    if ($script:TweakStatesBgPS) {
+        try { $script:TweakStatesBgPS.Stop() } catch {}
+        try { $script:TweakStatesBgPS.Dispose() } catch {}
+        $script:TweakStatesBgPS = $null
+    }
+    $script:TweakStatesBgAsync = $null
+    # Dispose the shared background runspace pool
+    Stop-WmtBackgroundRunspacePool
     if ($script:WmtRegistryCleanupTimer) { try { $script:WmtRegistryCleanupTimer.Stop() } catch {}; $script:WmtRegistryCleanupTimer = $null }
     if ($script:WmtRegistryCleanupPowerShell) { try { $script:WmtRegistryCleanupPowerShell.Stop() } catch {}; try { $script:WmtRegistryCleanupPowerShell.Dispose() } catch {}; $script:WmtRegistryCleanupPowerShell = $null }
     if ($script:WmtRegistryCleanupRunspace) { try { $script:WmtRegistryCleanupRunspace.Dispose() } catch {}; $script:WmtRegistryCleanupRunspace = $null }
