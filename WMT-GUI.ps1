@@ -1945,7 +1945,7 @@ function Initialize-WmtBackgroundRunspacePool {
         try { $iss.Commands.Add([System.Management.Automation.Runspaces.SessionStateFunctionEntry]::new("Invoke-WmtCliText", ${function:Invoke-WmtCliText}.ToString())) } catch {}
     }
 
-    $pool = [runspacefactory]::CreateRunspacePool(1, 4, $iss, $Host)
+    $pool = [runspacefactory]::CreateRunspacePool(1, 6, $iss, $Host)
     $pool.ApartmentState = "STA"
     $pool.ThreadOptions = "ReuseThread"
     $pool.Open()
@@ -25062,6 +25062,8 @@ function Get-WmtTweakPathExistsCached {
 function Start-TweakButtonStatesDeferredUpdate {
     # Debounce: if called multiple times within 100ms, only run once.
     # Uses BeginInvoke at Background priority so the UI thread isn't blocked.
+    # NOTE: Does NOT clear the entire cache. Button click handlers should use
+    # Clear-WmtRegCache for specific paths. This only re-applies cached values.
     if ($script:TweakStatesDebounceTimer) {
         $script:TweakStatesDebounceTimer.Stop()
     }
@@ -25070,10 +25072,8 @@ function Start-TweakButtonStatesDeferredUpdate {
         $script:TweakStatesDebounceTimer.Interval = [TimeSpan]::FromMilliseconds(100)
         $script:TweakStatesDebounceTimer.Add_Tick({
                 $script:TweakStatesDebounceTimer.Stop()
-                # Invalidate the cache so fresh values are read
-                $script:TweakButtonStatesCache = $null
-                $script:TweakButtonStatesPathChecks = $null
-                # Run Update-TweakButtonStates at Background priority (non-blocking)
+                # Run Update-TweakButtonStates at Background priority (non-blocking).
+                # Since all data is cached, this is now instant (no blocking I/O).
                 [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
                     [System.Windows.Threading.DispatcherPriority]::Background,
                     [Action] { Update-TweakButtonStates }
@@ -25086,13 +25086,9 @@ function Start-TweakButtonStatesDeferredUpdate {
 function Update-TweakButtonStates {
     try {
         $regCache = @{}
-        # Clear fsutil cache at the start so we get fresh values
-        $script:CacheFsutilLastAccess = $null
-        $script:CacheFsutil83 = $null
-
         # If we have a background-loaded cache, use it as $regCache directly.
         # This means ZERO Get-ItemProperty calls on the UI thread (instant).
-        # After a button click, the cache is cleared so the next call reads fresh values.
+        # After a button click, only the relevant cache entries are invalidated.
         if ($script:TweakButtonStatesCache -and $script:TweakButtonStatesCache.Count -gt 0) {
             $regCache = $script:TweakButtonStatesCache
         }
@@ -25100,6 +25096,15 @@ function Update-TweakButtonStates {
         if ($script:TweakButtonStatesPathChecks -and $script:TweakButtonStatesPathChecks.Count -gt 0) {
             $pathCheckCache = $script:TweakButtonStatesPathChecks
         }
+
+        # Load pre-fetched non-registry data (services, fsutil, powercfg, etc.)
+        # so the UI thread makes ZERO blocking calls — everything is cached.
+        # If the background preload hasn't completed yet, these will be empty
+        # and the fallback live-call paths below will handle it.
+        $nrd = @{}
+        if ($script:TweakNonRegDataCache) { $nrd = $script:TweakNonRegDataCache }
+        $sc = @{}
+        if ($script:TweakSupportChecksCache) { $sc = $script:TweakSupportChecksCache }
 
         $getRegValue = {
             param(
@@ -25143,10 +25148,14 @@ function Update-TweakButtonStates {
         $hagsOn = ($h -ne 2); Update-WmtTweakToggle $btnToggleHags $hagsOn "Disable HAGS" "Enable HAGS"
         Update-WmtTweakToggle $btnMyDeviceHagsToggle $hagsOn "Disable HAGS" "Enable HAGS"
 
-        $sm = Get-Service "SysMain" -EA Ignore
-        if ($sm) {
-            $d = ($sm.StartType -eq 'Disabled')
-            $superfetchDisabled = $d; Update-WmtTweakToggle $btnToggleSuperfetch $superfetchDisabled "Enable Superfetch" "Disable Superfetch"
+        $smStartType = $nrd["SysMainStartType"]
+        if ($null -eq $smStartType) {
+            # Fallback: read live (only if background preload hasn't completed)
+            try { $smLive = Get-Service "SysMain" -EA Ignore; if ($smLive) { $smStartType = $smLive.StartType } } catch {}
+        }
+        if ($null -ne $smStartType) {
+            $superfetchDisabled = ($smStartType -eq 'Disabled')
+            Update-WmtTweakToggle $btnToggleSuperfetch $superfetchDisabled "Enable Superfetch" "Disable Superfetch"
         }
 
         $hibernate = & $getRegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "HibernateEnabled"
@@ -25156,13 +25165,13 @@ function Update-TweakButtonStates {
             Update-WmtTweakToggle $btnMyDeviceHibernateToggle $hibernateOff "Enable Hibernation" "Disable Hibernation"
         }
 
-        if (Get-Command Get-MMAgent -ErrorAction Ignore) {
-            $mma = Get-MMAgent -ErrorAction Ignore
-            if ($mma -and $null -ne $mma.MemoryCompression) {
-                $memoryCompressionEnabled = [bool]$mma.MemoryCompression
-                Update-WmtTweakToggle $btnToggleMemCompress $memoryCompressionEnabled "Enable Mem Compression" "Disable Mem Compression"
-                Update-WmtTweakToggle $btnMyDeviceMemCompressToggle $memoryCompressionEnabled "Enable Mem Compression" "Disable Mem Compression"
-            }
+        $mmaEnabled = $nrd["MMAgentMemoryCompression"]
+        if ($null -eq $mmaEnabled) {
+            try { if (Get-Command Get-MMAgent -ErrorAction Ignore) { $mmaLive = Get-MMAgent -ErrorAction Ignore; if ($mmaLive -and $null -ne $mmaLive.MemoryCompression) { $mmaEnabled = [bool]$mmaLive.MemoryCompression } } } catch {}
+        }
+        if ($null -ne $mmaEnabled) {
+            Update-WmtTweakToggle $btnToggleMemCompress $mmaEnabled "Enable Mem Compression" "Disable Mem Compression"
+            Update-WmtTweakToggle $btnMyDeviceMemCompressToggle $mmaEnabled "Enable Mem Compression" "Disable Mem Compression"
         }
 
         $ap = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
@@ -25448,9 +25457,9 @@ function Update-TweakButtonStates {
 
             # Explorer (round 2)
             $ntlaBtn = Get-Ctrl "btnToggleNTFSLastAccess"
-            if ($ntlaBtn) { $out = (& fsutil behavior query DisableLastAccess 2>$null); $off = ($out -match "1"); Update-WmtTweakToggle $ntlaBtn $off "Enable NTFS Last Access" "Disable NTFS Last Access" }
+            if ($ntlaBtn) { $off = $nrd["FsutilDisableLastAccess"]; if ($null -eq $off) { try { $out = (& fsutil behavior query DisableLastAccess 2>$null); $off = ($out -match "1") } catch {} }; if ($null -ne $off) { Update-WmtTweakToggle $ntlaBtn $off "Enable NTFS Last Access" "Disable NTFS Last Access" } }
             $n83Btn = Get-Ctrl "btnToggleNTFS83"
-            if ($n83Btn) { $out = (& fsutil behavior query Disable8dot3 2>$null); $off = ($out -match "1"); Update-WmtTweakToggle $n83Btn $off "Enable NTFS 8.3" "Disable NTFS 8.3" }
+            if ($n83Btn) { $off = $nrd["FsutilDisable8dot3"]; if ($null -eq $off) { try { $out = (& fsutil behavior query Disable8dot3 2>$null); $off = ($out -match "1") } catch {} }; if ($null -ne $off) { Update-WmtTweakToggle $n83Btn $off "Enable NTFS 8.3" "Disable NTFS 8.3" } }
             $tcBtn = Get-Ctrl "btnToggleThumbCache"
             if ($tcBtn) { $v = (ConvertTo-Int (& $getRegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "DisableThumbnails" 0) 0); Update-WmtTweakToggle $tcBtn ($v -eq 1) "Thumbnail Cache On" "Thumbnail Cache Off" }
             $dlfBtn = Get-Ctrl "btnToggleDriveLettersFirst"
@@ -25498,7 +25507,7 @@ function Update-TweakButtonStates {
 
             # Developer (round 2)
             $psBtn = Get-Ctrl "btnTogglePSExec"
-            if ($psBtn) { $v = (Get-ExecutionPolicy -Scope CurrentUser); Update-WmtTweakToggle $psBtn ($v -ne "Restricted" -and $v -ne "AllSigned") "Disable PS Execution" "Enable PS Execution" }
+            if ($psBtn) { $v = $nrd["ExecutionPolicy"]; if ($null -eq $v) { try { $v = (Get-ExecutionPolicy -Scope CurrentUser -ErrorAction SilentlyContinue) } catch {} }; if ($null -ne $v) { Update-WmtTweakToggle $psBtn ($v -ne "Restricted" -and $v -ne "AllSigned") "Disable PS Execution" "Enable PS Execution" } }
             $sdBtn = Get-Ctrl "btnToggleSudo"
             if ($sdBtn) { $v = (ConvertTo-Int (& $getRegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo" "Enabled" 0) 0); Update-WmtTweakToggle $sdBtn ($v -ne 0) "Disable Sudo" "Enable Sudo" }
             $wshBtn = Get-Ctrl "btnToggleWSH"
@@ -25537,9 +25546,12 @@ function Update-TweakButtonStates {
         $webSearchOff = ((ConvertTo-Int (& $getRegValue "HKCU:\Software\Policies\Microsoft\Windows\Explorer" "DisableSearchBoxSuggestions" 0) 0) -eq 1 -or (ConvertTo-Int (& $getRegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" "BingSearchEnabled" 1) 0) -eq 0)
         $btnToggleWebSearch = Get-Ctrl "btnToggleWebSearch"
         Update-WmtTweakToggle $btnToggleWebSearch $webSearchOff "Web Search Off" "Web Search On"
-        $searchSvc = Get-Service "WSearch" -ErrorAction Ignore
-        if ($searchSvc) {
-            $indexReduced = ($searchSvc.StartType -ne "Automatic")
+        $wsStartType = $nrd["WSearchStartType"]
+        if ($null -eq $wsStartType) {
+            try { $wsLive = Get-Service "WSearch" -ErrorAction Ignore; if ($wsLive) { $wsStartType = $wsLive.StartType } } catch {}
+        }
+        if ($null -ne $wsStartType) {
+            $indexReduced = ($wsStartType -ne "Automatic")
             $btnToggleSearchIndex = Get-Ctrl "btnToggleSearchIndex"
             Update-WmtTweakToggle $btnToggleSearchIndex $indexReduced "Reduce Indexing" "Default Indexing"
         }
@@ -25586,19 +25598,24 @@ function Update-TweakButtonStates {
         $btnToggleRestoreFolders = Get-Ctrl "btnToggleRestoreFolders"
         Update-WmtTweakToggle $btnToggleRestoreFolders $restoreFoldersOn "Restore Folders On" "Restore Folders Off"
 
-        $batteryThreshold = Get-WmtPowerSettingIndex "SUB_ENERGYSAVER" "ESBATTTHRESHOLD" "DC"
+        $batteryThreshold = $nrd["BatterySaverThreshold"]
+        if ($null -eq $batteryThreshold) { try { $batteryThreshold = Get-WmtPowerSettingIndex "SUB_ENERGYSAVER" "ESBATTTHRESHOLD" "DC" } catch {} }
         if ($null -ne $batteryThreshold) {
             & $setButtonEnabled "btnPowerBatterySaverOff" ($batteryThreshold -ne 0); & $setButtonEnabled "btnPowerBatterySaver20" ($batteryThreshold -ne 20); & $setButtonEnabled "btnPowerBatterySaver50" ($batteryThreshold -ne 50)
         }
-        $usbSub = "2a737441-1930-4402-8d77-b2bebba308a3"; $usbSetting = "48e6b7a6-50f5-4782-a5d4-53bb8f07e226"
-        $usbAc = Get-WmtPowerSettingIndex $usbSub $usbSetting "AC"; $usbDc = Get-WmtPowerSettingIndex $usbSub $usbSetting "DC"
+        $usbAc = $nrd["UsbSuspendAC"]; $usbDc = $nrd["UsbSuspendDC"]
+        if ($null -eq $usbAc -or $null -eq $usbDc) {
+            try { $usbSub2 = "2a737441-1930-4402-8d77-b2bebba308a3"; $usbSet2 = "48e6b7a6-50f5-4782-a5d4-53bb8f07e226"; if ($null -eq $usbAc) { $usbAc = Get-WmtPowerSettingIndex $usbSub2 $usbSet2 "AC" }; if ($null -eq $usbDc) { $usbDc = Get-WmtPowerSettingIndex $usbSub2 $usbSet2 "DC" } } catch {}
+        }
         if ($null -ne $usbAc -and $null -ne $usbDc) {
             $usbOn = ($usbAc -eq 1 -and $usbDc -eq 1)
             $btnToggleUsbSuspend = Get-Ctrl "btnToggleUsbSuspend"
             Update-WmtTweakToggle $btnToggleUsbSuspend $usbOn "USB Suspend On" "USB Suspend Off"
         }
-        $pcieSub = "501a4d13-42af-4429-9fd1-a8218c268e20"; $pcieSetting = "ee12f906-d277-404b-b6da-e5fa1a576df5"
-        $pcieAc = Get-WmtPowerSettingIndex $pcieSub $pcieSetting "AC"; $pcieDc = Get-WmtPowerSettingIndex $pcieSub $pcieSetting "DC"
+        $pcieAc = $nrd["PcieASPMAc"]; $pcieDc = $nrd["PcieASPMDc"]
+        if ($null -eq $pcieAc -or $null -eq $pcieDc) {
+            try { $pcieSub2 = "501a4d13-42af-4429-9fd1-a8218c268e20"; $pcieSet2 = "ee12f906-d277-404b-b6da-e5fa1a576df5"; if ($null -eq $pcieAc) { $pcieAc = Get-WmtPowerSettingIndex $pcieSub2 $pcieSet2 "AC" }; if ($null -eq $pcieDc) { $pcieDc = Get-WmtPowerSettingIndex $pcieSub2 $pcieSet2 "DC" } } catch {}
+        }
         if ($null -ne $pcieAc -and $null -ne $pcieDc) {
             $pcieModerate = ($pcieAc -eq 1 -and $pcieDc -eq 1)
             $btnTogglePcie = Get-Ctrl "btnTogglePcie"
@@ -25611,68 +25628,63 @@ function Update-TweakButtonStates {
         $devModeOn = ((ConvertTo-Int (& $getRegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" "AllowDevelopmentWithoutDevLicense" 0) 0) -eq 1)
         $btnToggleDevMode = Get-Ctrl "btnToggleDevMode"
         Update-WmtTweakToggle $btnToggleDevMode $devModeOn "Developer Mode On" "Developer Mode Off"
-        $drvMetaPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata"
         $drvMetaDisabled = $false
-        try {
-            $val = Get-WmtRegValue $drvMetaPath "PreventDeviceMetadataFromNetwork" 0
-            if ([int]$val -eq 1) { $drvMetaDisabled = $true }
-        }
-        catch {}
+        $drvMetaVal = $nrd["DrvMetadata"]
+        if ($null -eq $drvMetaVal) { try { $drvMetaVal = Get-WmtRegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata" "PreventDeviceMetadataFromNetwork" 0 } catch {} }
+        if ($null -ne $drvMetaVal) { $drvMetaDisabled = ([int]$drvMetaVal -eq 1) }
         $btnToggleDrvMeta = Get-Ctrl "btnToggleDrvMeta"
         Update-WmtTweakToggle $btnToggleDrvMeta $drvMetaDisabled "Enable Metadata" "Disable Metadata" "Toggle device metadata downloads (icons/info) from the internet."
-        $drvWUPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching"
         $drvWUDisabled = $false
-        try {
-            $val = Get-WmtRegValue $drvWUPath "SearchOrderConfig" 0
-            if ([int]$val -eq 1) { $drvWUDisabled = $true }
-        }
-        catch {}
+        $drvWUVal = $nrd["DrvSearchOrder"]
+        if ($null -eq $drvWUVal) { try { $drvWUVal = Get-WmtRegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" "SearchOrderConfig" 0 } catch {} }
+        if ($null -ne $drvWUVal) { $drvWUDisabled = ([int]$drvWUVal -eq 1) }
         $btnToggleDrvUpdates = Get-Ctrl "btnToggleDrvUpdates"
         Update-WmtTweakToggle $btnToggleDrvUpdates $drvWUDisabled "Enable Auto-Drivers" "Disable Auto-Drivers" "Toggle automatic driver updates via Windows Update."
 
         # ── Unsupported-tweak support checks ──────────────────────────
         # Disable buttons whose target registry key / feature no longer
         # exists on the current Windows build so users don't get confused.
+        # If background preload data is available, use it; otherwise check live.
         $btn3D = Get-Ctrl "btnToggle3DObjects"
         if ($btn3D) {
-            Set-WmtTweakSupportState -Control $btn3D -PrerequisiteCheck {
-                Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}"
-            } -UnsupportedReason "The 3D Objects shell folder has been removed in your version of Windows 11."
+            if ($sc.Count -gt 0) { $isSupported = $sc["3DObjects"] }
+            else { try { $isSupported = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}" } catch { $isSupported = $true } }
+            if (-not $isSupported) { $btn3D.IsEnabled = $false; $btn3D.Opacity = 0.45; $btn3D.ToolTip = "The 3D Objects shell folder has been removed in your version of Windows 11." }
         }
 
         $btnChat = Get-Ctrl "btnToggleChat"
         if ($btnChat) {
-            Set-WmtTweakSupportState -Control $btnChat -PrerequisiteCheck {
-                Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn"
-            } -UnsupportedReason "The Chat (Microsoft Teams) taskbar button has been removed in your version of Windows 11."
+            if ($sc.Count -gt 0) { $isSupported = $sc["Chat"] }
+            else { try { $isSupported = Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn" } catch { $isSupported = $true } }
+            if (-not $isSupported) { $btnChat.IsEnabled = $false; $btnChat.Opacity = 0.45; $btnChat.ToolTip = "The Chat (Microsoft Teams) taskbar button has been removed in your version of Windows 11." }
         }
 
         $btnWidgets = Get-Ctrl "btnToggleWidgets"
         if ($btnWidgets) {
-            Set-WmtTweakSupportState -Control $btnWidgets -PrerequisiteCheck {
-                $null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -ErrorAction SilentlyContinue)
-            } -UnsupportedReason "The Widgets panel has been removed or deprecated in your version of Windows 11."
+            if ($sc.Count -gt 0) { $isSupported = $sc["Widgets"] }
+            else { try { $isSupported = ($null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -ErrorAction SilentlyContinue)) } catch { $isSupported = $true } }
+            if (-not $isSupported) { $btnWidgets.IsEnabled = $false; $btnWidgets.Opacity = 0.45; $btnWidgets.ToolTip = "The Widgets panel has been removed or deprecated in your version of Windows 11." }
         }
 
         $btnActivity = Get-Ctrl "btnToggleActivity"
         if ($btnActivity) {
-            Set-WmtTweakSupportState -Control $btnActivity -PrerequisiteCheck {
-                Test-Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory"
-            } -UnsupportedReason "Activity History / Timeline has been removed in your version of Windows 11."
+            if ($sc.Count -gt 0) { $isSupported = $sc["Activity"] }
+            else { try { $isSupported = Test-Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory" } catch { $isSupported = $true } }
+            if (-not $isSupported) { $btnActivity.IsEnabled = $false; $btnActivity.Opacity = 0.45; $btnActivity.ToolTip = "Activity History / Timeline has been removed in your version of Windows 11." }
         }
 
         $btnCEIP = Get-Ctrl "btnToggleCEIP"
         if ($btnCEIP) {
-            Set-WmtTweakSupportState -Control $btnCEIP -PrerequisiteCheck {
-                Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows"
-            } -UnsupportedReason "The Customer Experience Improvement Program (CEIP) is no longer present on your system."
+            if ($sc.Count -gt 0) { $isSupported = $sc["CEIP"] }
+            else { try { $isSupported = Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" } catch { $isSupported = $true } }
+            if (-not $isSupported) { $btnCEIP.IsEnabled = $false; $btnCEIP.Opacity = 0.45; $btnCEIP.ToolTip = "The Customer Experience Improvement Program (CEIP) is no longer present on your system." }
         }
 
         $btnSpeech = Get-Ctrl "btnToggleSpeechOnline"
         if ($btnSpeech) {
-            Set-WmtTweakSupportState -Control $btnSpeech -PrerequisiteCheck {
-                $null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Speech_OneSet" -Name "AcceptPrivacyNotice" -ErrorAction SilentlyContinue)
-            } -UnsupportedReason "Online speech recognition settings are no longer available on your version of Windows."
+            if ($sc.Count -gt 0) { $isSupported = $sc["Speech"] }
+            else { try { $isSupported = ($null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Speech_OneSet" -Name "AcceptPrivacyNotice" -ErrorAction SilentlyContinue)) } catch { $isSupported = $true } }
+            if (-not $isSupported) { $btnSpeech.IsEnabled = $false; $btnSpeech.Opacity = 0.45; $btnSpeech.ToolTip = "Online speech recognition settings are no longer available on your version of Windows." }
         }
     }
     catch {
@@ -40863,7 +40875,93 @@ function Start-TweakButtonStatesBackgroundUpdate {
                 "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice"
             }
 
-            return @{ RegCache = $regCache; PathChecks = $pathChecks }
+            # ── Pre-load blocking non-registry calls (the ones that crash low-end PCs) ──
+            $nonRegData = @{}
+
+            # Get-Service calls (WMI/CIM — very slow on low-end hardware)
+            try {
+                $sm = Get-Service "SysMain" -ErrorAction SilentlyContinue
+                $nonRegData["SysMainStartType"] = if ($sm) { $sm.StartType } else { $null }
+            } catch { $nonRegData["SysMainStartType"] = $null }
+
+            try {
+                $ws = Get-Service "WSearch" -ErrorAction SilentlyContinue
+                $nonRegData["WSearchStartType"] = if ($ws) { $ws.StartType } else { $null }
+            } catch { $nonRegData["WSearchStartType"] = $null }
+
+            # Get-MMAgent (CIM — very slow on low-end hardware)
+            try {
+                if (Get-Command Get-MMAgent -ErrorAction Ignore) {
+                    $mma = Get-MMAgent -ErrorAction SilentlyContinue
+                    $nonRegData["MMAgentMemoryCompression"] = if ($mma -and $null -ne $mma.MemoryCompression) { [bool]$mma.MemoryCompression } else { $null }
+                } else {
+                    $nonRegData["MMAgentMemoryCompression"] = $null
+                }
+            } catch { $nonRegData["MMAgentMemoryCompression"] = $null }
+
+            # fsutil behavior query ×2 (process spawns)
+            try {
+                $out1 = (& fsutil behavior query DisableLastAccess 2>$null)
+                $nonRegData["FsutilDisableLastAccess"] = if ($out1 -match "1") { $true } else { $false }
+            } catch { $nonRegData["FsutilDisableLastAccess"] = $null }
+            try {
+                $out2 = (& fsutil behavior query Disable8dot3 2>$null)
+                $nonRegData["FsutilDisable8dot3"] = if ($out2 -match "1") { $true } else { $false }
+            } catch { $nonRegData["FsutilDisable8dot3"] = $null }
+
+            # Get-ExecutionPolicy
+            try {
+                $nonRegData["ExecutionPolicy"] = Get-ExecutionPolicy -Scope CurrentUser -ErrorAction SilentlyContinue
+            } catch { $nonRegData["ExecutionPolicy"] = $null }
+
+            # Get-WmtPowerSettingIndex — powercfg calls (4 unique settings × up to 2 attempts each)
+            function Get-PowerSettingIdx {
+                param(
+                    [string]$SubGroup,
+                    [string]$Setting,
+                    [string]$Mode = "AC"
+                )
+                try {
+                    $output = powercfg /query SCHEME_CURRENT $SubGroup $Setting 2>$null
+                    $label = if ($Mode -eq "DC") { "Current DC Power Setting Index" } else { "Current AC Power Setting Index" }
+                    $pattern = [regex]::Escape($label) + "\s*:\s*0x([0-9a-fA-F]+)"
+                    foreach ($line in $output) {
+                        if ($line -match $pattern) { return [Convert]::ToInt32($matches[1], 16) }
+                    }
+                    $output = powercfg /qh SCHEME_CURRENT $SubGroup $Setting 2>$null
+                    foreach ($line in $output) {
+                        if ($line -match $pattern) { return [Convert]::ToInt32($matches[1], 16) }
+                    }
+                } catch {}
+                return $null
+            }
+
+            $nonRegData["BatterySaverThreshold"] = Get-PowerSettingIdx "SUB_ENERGYSAVER" "ESBATTTHRESHOLD" "DC"
+
+            $usbSub = "2a737441-1930-4402-8d77-b2bebba308a3"
+            $usbSetting = "48e6b7a6-50f5-4782-a5d4-53bb8f07e226"
+            $nonRegData["UsbSuspendAC"] = Get-PowerSettingIdx $usbSub $usbSetting "AC"
+            $nonRegData["UsbSuspendDC"] = Get-PowerSettingIdx $usbSub $usbSetting "DC"
+
+            $pcieSub = "501a4d13-42af-4429-9fd1-a8218c268e20"
+            $pcieSetting = "ee12f906-d277-404b-b6da-e5fa1a576df5"
+            $nonRegData["PcieASPMAc"] = Get-PowerSettingIdx $pcieSub $pcieSetting "AC"
+            $nonRegData["PcieASPMDc"] = Get-PowerSettingIdx $pcieSub $pcieSetting "DC"
+
+            # Direct registry reads not in the 54-path list
+            try { $nonRegData["DrvMetadata"] = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata" -Name "PreventDeviceMetadataFromNetwork" -ErrorAction SilentlyContinue).PreventDeviceMetadataFromNetwork } catch { $nonRegData["DrvMetadata"] = $null }
+            try { $nonRegData["DrvSearchOrder"] = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" -Name "SearchOrderConfig" -ErrorAction SilentlyContinue).SearchOrderConfig } catch { $nonRegData["DrvSearchOrder"] = $null }
+
+            # Support-check Test-Path results
+            $supportChecks = @{}
+            try { $supportChecks["3DObjects"] = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}" } catch { $supportChecks["3DObjects"] = $true }
+            try { $supportChecks["Chat"] = Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn" } catch { $supportChecks["Chat"] = $true }
+            try { $supportChecks["Widgets"] = ($null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -ErrorAction SilentlyContinue)) } catch { $supportChecks["Widgets"] = $true }
+            try { $supportChecks["Activity"] = Test-Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory" } catch { $supportChecks["Activity"] = $true }
+            try { $supportChecks["CEIP"] = Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" } catch { $supportChecks["CEIP"] = $true }
+            try { $supportChecks["Speech"] = ($null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Speech_OneSet" -Name "AcceptPrivacyNotice" -ErrorAction SilentlyContinue)) } catch { $supportChecks["Speech"] = $true }
+
+            return @{ RegCache = $regCache; PathChecks = $pathChecks; NonRegData = $nonRegData; SupportChecks = $supportChecks }
         })
 
     $async = $ps.BeginInvoke()
@@ -40877,10 +40975,19 @@ function Start-TweakButtonStatesBackgroundUpdate {
                 $script:TweakStatesBgTimer.Stop()
                 try {
                     $result = $script:TweakStatesBgPS.EndInvoke($script:TweakStatesBgAsync)
-                    if ($result) {
-                        # Store the pre-loaded regCache and path checks
+                    # EndInvoke returns Collection<PSObject> — must use [-1] to get the
+                    # actual return value (same fix applied to My Device and Event Log).
+                    if ($result -is [System.Collections.ObjectModel.Collection[PSObject]] -and $result.Count -gt 0) {
+                        $result = $result[-1]
+                    }
+                    if ($result -and $result -is [hashtable]) {
+                        # Store the pre-loaded regCache, path checks, non-registry data, and support checks
                         $script:TweakButtonStatesCache = $result.RegCache
                         $script:TweakButtonStatesPathChecks = $result.PathChecks
+                        $script:TweakNonRegDataCache = $result.NonRegData
+                        $script:TweakSupportChecksCache = $result.SupportChecks
+                    } else {
+                        try { Write-GuiLog "[Tweak States] Background preload returned unexpected type: $($result.GetType().FullName)" } catch {}
                     }
                     # Apply to buttons (instant – no registry I/O, reads from cache)
                     Update-TweakButtonStates
@@ -40899,6 +41006,22 @@ function Start-TweakButtonStatesBackgroundUpdate {
             }
         })
     $script:TweakStatesBgTimer.Start()
+
+    # Timeout guard: if the runspace pool is starved (e.g. My Device jobs filling
+    # all slots), the background job may never start. After 30 seconds, hide the
+    # overlay so the Tweaks page is usable even without cached state data.
+    $script:TweakStatesBgTimeout = New-Object System.Windows.Threading.DispatcherTimer
+    $script:TweakStatesBgTimeout.Interval = [TimeSpan]::FromSeconds(30)
+    $script:TweakStatesBgTimeout.Add_Tick({
+            $script:TweakStatesBgTimeout.Stop()
+            if (-not $script:TweakStatesReady) {
+                try { Write-GuiLog "[Tweak States] Background preload timed out (pool may be busy). Showing buttons with default state." } catch {}
+                Set-TweakStatesLoadingOverlay -Visible $false
+                # Apply whatever cache we have (may be empty) so buttons aren't stuck
+                Update-TweakButtonStates
+            }
+        })
+    $script:TweakStatesBgTimeout.Start()
 }
 
 function Start-OptionalFeaturesBackgroundCheck {
