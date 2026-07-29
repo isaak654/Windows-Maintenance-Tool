@@ -11,10 +11,10 @@
 # ==========================================
 $AppVersion = "6.4"
 $ErrorActionPreference = "SilentlyContinue"
-# Set encoding dynamically based on the user's local Windows language
-$OEMEncoding = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage)
-[Console]::OutputEncoding = $OEMEncoding
-$OutputEncoding = $OEMEncoding
+# Preserve UTF-8 for web content, alt codes, and Unicode symbols.
+# OEM encoding is only used per-process where needed (e.g. ipconfig).
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Get-WmtCurrentProcessPath {
     try {
@@ -7840,14 +7840,20 @@ function Show-WmtAdvancedCleanupSelectionWpf {
         </ScrollViewer>
 
         <Border Grid.Row="2" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,12">
-            <Grid>
-                <Button Name="btnEventLogs" Content="Clear Event Logs" Width="132" HorizontalAlignment="Left" Background="{DynamicResource Warning}" Foreground="{DynamicResource WarningText}"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Name="btnCancel" Content="Cancel" Width="94" IsCancel="True" Margin="0,0,8,0"/>
-                    <Button Name="btnAnalyze" Content="Analyze" Width="104" Background="{DynamicResource Accent}" Foreground="{DynamicResource AccentText}" Margin="0,0,8,0"/>
-                    <Button Name="btnClean" Content="Clean Selected" Width="128" Background="{DynamicResource Success}" Foreground="{DynamicResource SuccessText}" IsDefault="True"/>
+            <StackPanel>
+                <Grid>
+                    <Button Name="btnEventLogs" Content="Clear Event Logs" Width="132" HorizontalAlignment="Left" Background="{DynamicResource Warning}" Foreground="{DynamicResource WarningText}"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Name="btnCancel" Content="Cancel" Width="94" IsCancel="True" Margin="0,0,8,0"/>
+                        <Button Name="btnAnalyze" Content="Analyze" Width="104" Background="{DynamicResource Accent}" Foreground="{DynamicResource AccentText}" Margin="0,0,8,0"/>
+                        <Button Name="btnClean" Content="Clean Selected" Width="128" Background="{DynamicResource Success}" Foreground="{DynamicResource SuccessText}" IsDefault="True"/>
+                    </StackPanel>
+                </Grid>
+                <StackPanel Name="pnlEventLogProgress" Visibility="Collapsed" Margin="0,8,0,0">
+                    <TextBlock Name="lblEventLogStatus" Text="Scanning event logs..." Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,0,0,4"/>
+                    <ProgressBar Name="pbEventLogProgress" Height="10" Minimum="0" Maximum="100" Value="0"/>
                 </StackPanel>
-            </Grid>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>
@@ -7873,6 +7879,9 @@ function Show-WmtAdvancedCleanupSelectionWpf {
     $btnAnalyze = $dialog.FindName("btnAnalyze")
     $btnCancel = $dialog.FindName("btnCancel")
     $btnEventLogs = $dialog.FindName("btnEventLogs")
+    $pnlEventLogProgress = $dialog.FindName("pnlEventLogProgress")
+    $lblEventLogStatus = $dialog.FindName("lblEventLogStatus")
+    $pbEventLogProgress = $dialog.FindName("pbEventLogProgress")
 
     if ($chkToggleWinapp2) { $chkToggleWinapp2.IsChecked = $isWinapp2Enabled }
     if ($chkToggleCleanerML) { $chkToggleCleanerML.IsChecked = $isCleanerMlEnabled }
@@ -8368,47 +8377,60 @@ function Show-WmtAdvancedCleanupSelectionWpf {
     if ($btnCancel) { $btnCancel.Add_Click({ $dialog.Close() }.GetNewClosure()) }
 
     if ($btnEventLogs) { $btnEventLogs.Add_Click({
-            $confirm = Show-WmtMessageBox -Owner $dialog -Message "Clear all Windows Event Logs?`n`nThis safely flushes all registered Event Logs on your system.`n`nWARNING: This process can take several minutes to complete." -Title "Confirm Clear Logs" -Button YesNo -Image Warning
-            if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
+            $confirm = Show-WmtMessageBox -Owner $dialog -Message "Clear all Windows Event Logs?`n`nThis safely flushes all registered Event Logs on your system." -Title "Confirm Clear Logs" -Button YesNo -Image Warning
+            if ($confirm -eq [System.Windows.MessageBoxResult]::Yes) {
+                $btnEventLogs.IsEnabled = $false
+                $btnEventLogs.Content = "Clearing..."
 
-            $dialog.Cursor = [System.Windows.Input.Cursors]::Wait
-            $btnEventLogs.IsEnabled = $false
-            $btnEventLogs.Content = "Clearing..."
+                # Show progress bar
+                if ($pnlEventLogProgress) { $pnlEventLogProgress.Visibility = [System.Windows.Visibility]::Visible }
+                if ($pbEventLogProgress) { $pbEventLogProgress.Value = 0 }
+                if ($lblEventLogStatus) { $lblEventLogStatus.Text = "Clearing event logs..." }
 
-            $script:EventLogRunspace = [PowerShell]::Create().AddScript({
-                    $logs = wevtutil el
-                    $cleared = 0
-                    foreach ($log in $logs) {
-                        wevtutil cl "$log" 2>$null
-                        $cleared++
-                    }
-                    return $cleared
-                })
-            $script:EventLogAsyncResult = $script:EventLogRunspace.BeginInvoke()
+                $script:EventLogRunspace = [PowerShell]::Create().AddScript({
+                        $logs = wevtutil el
+                        $cleared = 0
+                        foreach ($log in $logs) {
+                            wevtutil cl "$log" 2>$null
+                            $cleared++
+                        }
+                        return $cleared
+                    })
+                $script:EventLogAsyncResult = $script:EventLogRunspace.BeginInvoke()
 
-            $script:EventLogTimer = [System.Windows.Threading.DispatcherTimer]::new()
-            $script:EventLogTimer.Interval = [TimeSpan]::FromMilliseconds(250)
-            $script:EventLogTimer.Add_Tick({
-                    if ($script:EventLogAsyncResult.IsCompleted) {
-                        $script:EventLogTimer.Stop()
-                        $dialog.Cursor = [System.Windows.Input.Cursors]::Arrow
-                        $btnEventLogs.IsEnabled = $true
-                        $btnEventLogs.Content = "Clear Event Logs"
-                        try {
-                            $clearedCount = $script:EventLogRunspace.EndInvoke($script:EventLogAsyncResult)
-                            if ($clearedCount -is [System.Collections.ObjectModel.Collection[PSObject]] -and $clearedCount.Count -gt 0) {
-                                $clearedCount = $clearedCount[-1]
+                $script:marqueeVal = 0
+                $script:EventLogTimer = New-Object System.Windows.Threading.DispatcherTimer
+                $script:EventLogTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+                $script:EventLogTimer.Add_Tick({
+                        if ($script:EventLogAsyncResult.IsCompleted) {
+                            $script:EventLogTimer.Stop()
+
+                            if ($pnlEventLogProgress) { $pnlEventLogProgress.Visibility = [System.Windows.Visibility]::Collapsed }
+                            $btnEventLogs.IsEnabled = $true
+                            $btnEventLogs.Content = "Clear Event Logs"
+
+                            try {
+                                $clearedCount = $script:EventLogRunspace.EndInvoke($script:EventLogAsyncResult)
+                                if ($clearedCount -is [System.Collections.ObjectModel.Collection[PSObject]] -and $clearedCount.Count -gt 0) {
+                                    $clearedCount = $clearedCount[-1]
+                                }
+                                $successMessage = "Successfully processed $clearedCount Event Logs."
+                                Write-GuiLog "[Event Logs] $successMessage"
+                                Show-WmtMessageBox -Owner $dialog -Message $successMessage -Title "Success" -Image Information | Out-Null
                             }
-                            Show-WmtMessageBox -Owner $dialog -Message "Successfully processed $clearedCount Event Logs." -Title "Success" -Image Information | Out-Null
+                            catch {
+                                Show-WmtMessageBox -Owner $dialog -Message "Error: $($_.Exception.Message)" -Title "Error" -Image Error | Out-Null
+                            }
+                            $script:EventLogRunspace.Dispose()
                         }
-                        catch {
-                            Show-WmtMessageBox -Owner $dialog -Message "Error: $($_.Exception.Message)" -Title "Error" -Image Error | Out-Null
+                        else {
+                            $script:marqueeVal = ($script:marqueeVal + 3) % 110
+                            if ($pbEventLogProgress) { $pbEventLogProgress.Value = [Math]::Min($script:marqueeVal, 100) }
                         }
-                        $script:EventLogRunspace.Dispose()
-                    }
-                }.GetNewClosure())
-            $script:EventLogTimer.Start()
-        }.GetNewClosure()) }
+                    })
+                $script:EventLogTimer.Start()
+            }
+        }) }
 
     $dialog.ShowDialog() | Out-Null
     return $selectionState.Result
@@ -19409,6 +19431,8 @@ function Show-DriverCleanupDialog {
                 $p.StartInfo.RedirectStandardError = $true
                 $p.StartInfo.UseShellExecute = $false
                 $p.StartInfo.CreateNoWindow = $true
+                $p.StartInfo.StandardOutputEncoding = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage)
+                $p.StartInfo.StandardErrorEncoding = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage)
                 $p.Start() | Out-Null
                 $stdOut = $p.StandardOutput.ReadToEnd()
                 $stdErr = $p.StandardError.ReadToEnd()
@@ -28796,6 +28820,9 @@ $Script:StartWingetAction = {
             $pInfo.RedirectStandardError = $true
             $pInfo.UseShellExecute = $false
             $pInfo.CreateNoWindow = $true
+            $oem = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage)
+            $pInfo.StandardOutputEncoding = $oem
+            $pInfo.StandardErrorEncoding = $oem
             $proc = [System.Diagnostics.Process]::Start($pInfo)
 
             function Write-WmtCommandOutputChunk {
@@ -28965,6 +28992,8 @@ $Script:StartWingetAction = {
             $pInfo.RedirectStandardError = $true
             $pInfo.UseShellExecute = $false
             $pInfo.CreateNoWindow = $true
+            $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+            $pInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
             $proc = [System.Diagnostics.Process]::Start($pInfo)
 
             $state = [PSCustomObject]@{ LastLine = ""; LastPct = -1; MeaningfulActivity = $false }
@@ -31412,6 +31441,8 @@ function Get-WmtLegendaryLibrary {
         $psi.RedirectStandardError = $true
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
+        $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        $psi.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
         $proc = [System.Diagnostics.Process]::Start($psi)
         $stdout = $proc.StandardOutput.ReadToEnd()
         $stderr = $proc.StandardError.ReadToEnd()
@@ -32244,7 +32275,7 @@ function Show-ProviderManager {
                               ToolTip="When enabled, closing the main window hides WMT to the system tray so background scans and notifications can continue."/>
                     <CheckBox Name="chkReduceRamInTray" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Content="Reduce RAM while hidden in tray" Margin="0,8,0,0"
                               ToolTip="When WMT is hidden to the tray, clear short-lived caches, trim the log, run garbage collection, and ask Windows to release unused working-set pages."/>
-                    <CheckBox Name="chkUpdateSilentInstall" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Content="Run update/install commands headless. ?? Experimental!" Margin="0,8,0,0"
+                    <CheckBox Name="chkUpdateSilentInstall" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Content="Run update/install commands headless. ⚠ Experimental!" Margin="0,8,0,0"
                               ToolTip="Hide CLI, PowerShell, and cmd update windows. Providers that require their own GUI, including Steam validation and Microsoft Store GUI updates, can still appear."/>
                     <CheckBox Name="chkUpdateAutoInstall" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Content="Automatically install available updates after scans" Margin="0,8,0,0"
                               ToolTip="After each completed scan, automatically update listed packages without confirmation. Packages known to risk an automatic restart are skipped."/>
@@ -34885,6 +34916,7 @@ $btnWingetScan.Add_Click({
                         $pInfo.UseShellExecute = $false
                         $pInfo.CreateNoWindow = $true
                         $pInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+                        $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
                         $pipProcess = [System.Diagnostics.Process]::Start($pInfo)
                         $outTask = $pipProcess.StandardOutput.ReadToEndAsync()
@@ -34940,6 +34972,7 @@ $btnWingetScan.Add_Click({
                         # Local packages
                         $pInfo = New-Object System.Diagnostics.ProcessStartInfo("cmd", "/c npm outdated --json 2>nul")
                         $pInfo.RedirectStandardOutput = $true; $pInfo.UseShellExecute = $false; $pInfo.CreateNoWindow = $true
+                        $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $p = [System.Diagnostics.Process]::Start($pInfo)
                         $outTask = $p.StandardOutput.ReadToEndAsync()
                         if ($p.WaitForExit(30000)) { 
@@ -34961,6 +34994,7 @@ $btnWingetScan.Add_Click({
                         # Global packages
                         $pInfoG = New-Object System.Diagnostics.ProcessStartInfo("cmd", "/c npm outdated -g --json 2>nul")
                         $pInfoG.RedirectStandardOutput = $true; $pInfoG.UseShellExecute = $false; $pInfoG.CreateNoWindow = $true
+                        $pInfoG.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $pg = [System.Diagnostics.Process]::Start($pInfoG)
                         $outTaskG = $pg.StandardOutput.ReadToEndAsync()
                         if ($pg.WaitForExit(30000)) { 
@@ -34993,6 +35027,7 @@ $btnWingetScan.Add_Click({
                     try {
                         $pInfo = New-Object System.Diagnostics.ProcessStartInfo("choco", "outdated -r")
                         $pInfo.RedirectStandardOutput = $true; $pInfo.UseShellExecute = $false; $pInfo.CreateNoWindow = $true
+                        $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $p = [System.Diagnostics.Process]::Start($pInfo)
                         $outTask = $p.StandardOutput.ReadToEndAsync()
                         if (-not $p.WaitForExit(60000)) { try { & "$env:SystemRoot\System32\taskkill.exe" /PID $p.Id /T /F 2>$null | Out-Null } catch { try { $p.Kill() } catch {} }; Write-Output "LOG:Chocolatey scan timed out."; return }
@@ -35022,6 +35057,7 @@ $btnWingetScan.Add_Click({
                     try {
                         $pInfo = New-Object System.Diagnostics.ProcessStartInfo("cmd", "/c scoop status")
                         $pInfo.RedirectStandardOutput = $true; $pInfo.UseShellExecute = $false; $pInfo.CreateNoWindow = $true
+                        $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $p = [System.Diagnostics.Process]::Start($pInfo)
                         $outTask = $p.StandardOutput.ReadToEndAsync()
                         if (-not $p.WaitForExit(30000)) { try { & "$env:SystemRoot\System32\taskkill.exe" /PID $p.Id /T /F 2>$null | Out-Null } catch { try { $p.Kill() } catch {} }; Write-Output "LOG:Scoop scan timed out."; return }
@@ -35051,6 +35087,7 @@ $btnWingetScan.Add_Click({
                     try {
                         $pInfo = New-Object System.Diagnostics.ProcessStartInfo("cmd", "/c gem outdated")
                         $pInfo.RedirectStandardOutput = $true; $pInfo.UseShellExecute = $false; $pInfo.CreateNoWindow = $true
+                        $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $p = [System.Diagnostics.Process]::Start($pInfo)
                         $outTask = $p.StandardOutput.ReadToEndAsync()
                         if (-not $p.WaitForExit(30000)) { try { & "$env:SystemRoot\System32\taskkill.exe" /PID $p.Id /T /F 2>$null | Out-Null } catch { try { $p.Kill() } catch {} }; Write-Output "LOG:Gem scan timed out."; return }
@@ -35078,6 +35115,7 @@ $btnWingetScan.Add_Click({
                     try {
                         $pInfo = New-Object System.Diagnostics.ProcessStartInfo("cmd", "/c cargo install --list")
                         $pInfo.RedirectStandardOutput = $true; $pInfo.UseShellExecute = $false; $pInfo.CreateNoWindow = $true
+                        $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $p = [System.Diagnostics.Process]::Start($pInfo)
                         $outTask = $p.StandardOutput.ReadToEndAsync()
                         if (-not $p.WaitForExit(30000)) { try { & "$env:SystemRoot\System32\taskkill.exe" /PID $p.Id /T /F 2>$null | Out-Null } catch { try { $p.Kill() } catch {} }; Write-Output "LOG:Cargo scan timed out."; return }
@@ -35342,6 +35380,7 @@ $btnWingetScan.Add_Click({
                         # Local packages
                         $pInfo = New-Object System.Diagnostics.ProcessStartInfo("cmd", "/c pnpm outdated --format json 2>nul")
                         $pInfo.RedirectStandardOutput = $true; $pInfo.UseShellExecute = $false; $pInfo.CreateNoWindow = $true
+                        $pInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $p = [System.Diagnostics.Process]::Start($pInfo)
                         $outTask = $p.StandardOutput.ReadToEndAsync()
                         if ($p.WaitForExit(35000)) {
@@ -35361,6 +35400,7 @@ $btnWingetScan.Add_Click({
                         # Global packages
                         $pInfoG = New-Object System.Diagnostics.ProcessStartInfo("cmd", "/c pnpm outdated -g --format json 2>nul")
                         $pInfoG.RedirectStandardOutput = $true; $pInfoG.UseShellExecute = $false; $pInfoG.CreateNoWindow = $true
+                        $pInfoG.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                         $pg = [System.Diagnostics.Process]::Start($pInfoG)
                         $outTaskG = $pg.StandardOutput.ReadToEndAsync()
                         if ($pg.WaitForExit(15000)) {
@@ -36378,7 +36418,7 @@ $script:GridSortDescendingGlyph = [string][char]0x25BC
 function Get-CleanHeader {
     param([object]$Header)
     if ($null -eq $Header) { return "" }
-    return ([regex]::Replace([string]$Header, '\s+(?:[\u25B2\u25BC]|\u00E2\u2013[\u00B2\u00BC])$', '')).Trim()
+    return ([regex]::Replace([string]$Header, '\s+[\u25B2\u25BC]$', '')).Trim()
 }
 
 function Get-GridViewColumnHeaderFromSource {
@@ -36816,6 +36856,7 @@ $btnWingetFind.Add_Click({
                                 $psi.RedirectStandardError = $true
                                 $psi.UseShellExecute = $false
                                 $psi.CreateNoWindow = $true
+                                $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                                 $proc = [System.Diagnostics.Process]::Start($psi)
                                 $stdout = $proc.StandardOutput.ReadToEnd()
                                 try { $proc.WaitForExit(30000) } catch {}
@@ -40026,6 +40067,7 @@ if ($btnShowLibrary -and $btnBackToCatalog -and $btnLibraryRefresh -and $brdCata
                     $psi.RedirectStandardOutput = $true
                     $psi.UseShellExecute = $false
                     $psi.CreateNoWindow = $true
+                    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                     $proc = [System.Diagnostics.Process]::Start($psi)
                     $stdout = $proc.StandardOutput.ReadToEnd()
                     try { $proc.WaitForExit(10000) } catch {}
@@ -41222,6 +41264,7 @@ function Start-WmtLibraryCacheBuilder {
                             $psi.RedirectStandardError = $true
                             $psi.UseShellExecute = $false
                             $psi.CreateNoWindow = $true
+                            $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
                             $proc = [System.Diagnostics.Process]::Start($psi)
                             $stdout = $proc.StandardOutput.ReadToEnd()
                             try { $proc.WaitForExit(30000) } catch {}
