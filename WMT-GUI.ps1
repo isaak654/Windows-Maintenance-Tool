@@ -1945,7 +1945,7 @@ function Initialize-WmtBackgroundRunspacePool {
         try { $iss.Commands.Add([System.Management.Automation.Runspaces.SessionStateFunctionEntry]::new("Invoke-WmtCliText", ${function:Invoke-WmtCliText}.ToString())) } catch {}
     }
 
-    $pool = [runspacefactory]::CreateRunspacePool(1, 6, $iss, $Host)
+    $pool = [runspacefactory]::CreateRunspacePool(1, 8, $iss, $Host)
     $pool.ApartmentState = "STA"
     $pool.ThreadOptions = "ReuseThread"
     $pool.Open()
@@ -1972,14 +1972,28 @@ function Stop-WmtBackgroundRunspacePool {
     }
 }
 
+# Helper: create a [PowerShell] instance bound to the shared runspace pool.
+# This avoids the overhead of a standalone runspace per invocation (~5-15MB each).
+# Falls back to standalone if the pool is unavailable.
+function New-WmtPooledPowerShell {
+    try {
+        $pool = Get-WmtBackgroundRunspacePool
+        if (-not $pool) { return [PowerShell]::Create() }
+        $ps = [PowerShell]::Create()
+        $ps.RunspacePool = $pool
+        return $ps
+    }
+    catch {
+        return [PowerShell]::Create()
+    }
+}
+
 function Start-MyDeviceSectionJob {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string]$Body
     )
-    $pool = Get-WmtBackgroundRunspacePool
-    $ps = [PowerShell]::Create()
-    $ps.RunspacePool = $pool
+    $ps = New-WmtPooledPowerShell
 
     # Bulletproof fix: Inject the helper functions directly into the script block.
     # This completely bypasses the fragile regex parser that was failing to load them.
@@ -4697,6 +4711,29 @@ function Invoke-WmtMemoryTrim {
         if ($script:MyDeviceCache) {
             try { $script:MyDeviceCache.Clear() } catch { $script:MyDeviceCache = @{} }
         }
+
+        # Release parsed CleanerML / Winapp2 rule caches (can be 50-100MB)
+        if ($script:CleanerMlRulesMemoryCache) { $script:CleanerMlRulesMemoryCache = $null }
+        if ($script:Winapp2RulesMemoryCache) { $script:Winapp2RulesMemoryCache = $null }
+
+        # Release game library caches (can be 30-80MB)
+        $script:LegendaryLibraryCache = $null
+        $script:WmtGogLibraryCache = $null
+        $script:SteamLibraryCache = $null
+
+        # Release firewall detail cache (can grow to 10-30MB)
+        $script:FirewallDetailCache = $null
+
+        # Release tweak state caches (re-loaded on next tab visit)
+        $script:TweakButtonStatesCache = $null
+        $script:TweakNonRegDataCache = $null
+        $script:TweakSupportChecksCache = $null
+        $script:TweakStatesReady = $false
+        $script:TweakStatesBgStarted = $false
+
+        # Clear completed update ID tracking
+        $script:WmtCompletedWindowsUpdateIds = $null
+        $script:WmtCompletedWindowsUpdateIds = @{}
 
         Optimize-WmtLogMemory -MaxLines $script:WmtMaxLogLines
 
@@ -34031,6 +34068,42 @@ function Stop-WmtUpdateAutoScanTimer {
     $script:WmtUpdateAutoScanTimerTickHandler = $null
 }
 
+# Periodic memory trim — runs every 5 minutes to release idle caches and reduce working set.
+# Only trims caches that are safe to release (re-loaded on next use) and forces GC.
+$script:WmtPeriodicMemoryTrimTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:WmtPeriodicMemoryTrimTimer.Interval = [TimeSpan]::FromMinutes(5)
+$script:WmtPeriodicMemoryTrimTimer.Add_Tick({
+        try { $script:WmtPeriodicMemoryTrimTimer.Stop() } catch {}
+        try {
+            # Only release caches if no scan is actively running
+            $scanBusy = $false
+            if ($script:ScanTimer -and $script:ScanTimer.IsEnabled) { $scanBusy = $true }
+            if ($script:WmtLibraryScanTimer -and $script:WmtLibraryScanTimer.IsEnabled) { $scanBusy = $true }
+            if ($script:WmtLibraryCacheRunspace) { $scanBusy = $true }
+            if (-not $scanBusy) {
+                # Release parsed cleaner rules (re-parsed on next cleaner use)
+                if ($script:CleanerMlRulesMemoryCache) { $script:CleanerMlRulesMemoryCache = $null }
+                if ($script:Winapp2RulesMemoryCache) { $script:Winapp2RulesMemoryCache = $null }
+                # Release game library caches (re-loaded on next library tab visit)
+                $script:LegendaryLibraryCache = $null
+                $script:WmtGogLibraryCache = $null
+                $script:SteamLibraryCache = $null
+                # Release firewall detail cache (re-loaded on demand)
+                $script:FirewallDetailCache = $null
+                # Compact the log
+                Optimize-WmtLogMemory -MaxLines $script:WmtMaxLogLines
+                # Force GC to reclaim freed memory
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+                [System.GC]::Collect()
+            }
+        }
+        catch {}
+        # Restart timer for next cycle
+        try { $script:WmtPeriodicMemoryTrimTimer.Start() } catch {}
+    })
+$script:WmtPeriodicMemoryTrimTimer.Start()
+
 function Start-WingetScanSourcePreflight {
     param([string[]]$Sources)
 
@@ -34067,7 +34140,7 @@ function Start-WingetScanSourcePreflight {
         $script:WingetSourcePreflightRunspace = $null
     }
 
-    $script:WingetSourcePreflightRunspace = [PowerShell]::Create().AddScript({
+    $script:WingetSourcePreflightRunspace = (New-WmtPooledPowerShell).AddScript({
             param([string[]]$Sources)
             [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
             $log = New-Object System.Collections.Generic.List[string]
@@ -34398,7 +34471,7 @@ $btnWingetScan.Add_Click({
         foreach ($wingetSource in @("winget")) {
             if ($wingetSource -notin $enabled) { continue }
 
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($SourceName, $IgnoreList, $IncludeUnknown)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -34526,7 +34599,7 @@ $btnWingetScan.Add_Click({
         }
 
         if ("msstore" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -34715,7 +34788,7 @@ $btnWingetScan.Add_Click({
 
         # WINDOWS UPDATE WORKER - includes optional updates.
         if ("windowsupdate" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList, $CompletedUpdateIds, $WuCategoryToggles)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -34915,7 +34988,7 @@ $btnWingetScan.Add_Click({
 
         # B. PIP WORKER
         if ("pip" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Pip..."
@@ -34976,7 +35049,7 @@ $btnWingetScan.Add_Click({
 
         # C. NPM WORKER
         if ("npm" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Npm..."
@@ -35032,7 +35105,7 @@ $btnWingetScan.Add_Click({
 
         # D. CHOCOLATEY WORKER (unchanged)
         if ("chocolatey" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Chocolatey..."
@@ -35062,7 +35135,7 @@ $btnWingetScan.Add_Click({
 
         # E. SCOOP WORKER (unchanged)
         if ("scoop" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Scoop..."
@@ -35092,7 +35165,7 @@ $btnWingetScan.Add_Click({
 
         # F. RUBY GEMS WORKER (unchanged)
         if ("gem" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Ruby Gems..."
@@ -35120,7 +35193,7 @@ $btnWingetScan.Add_Click({
 
         # G. CARGO WORKER (unchanged)
         if ("cargo" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Cargo..."
@@ -35148,7 +35221,7 @@ $btnWingetScan.Add_Click({
 
         # H. .NET GLOBAL TOOLS WORKER
         if ("dotnet" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -35239,7 +35312,7 @@ $btnWingetScan.Add_Click({
 
         # I. POWERSHELL MODULES WORKER
         if ("psmodule" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -35341,7 +35414,7 @@ $btnWingetScan.Add_Click({
 
         # J. COMPOSER WORKER
         if ("composer" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -35384,7 +35457,7 @@ $btnWingetScan.Add_Click({
 
         # H. PNPM WORKER (unchanged)
         if ("pnpm" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Pnpm..."
@@ -35437,7 +35510,7 @@ $btnWingetScan.Add_Click({
 
         # I. LEGENDARY / EPIC GAMES WORKER
         if ("legendary" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList, $LegendaryExePath)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -35585,7 +35658,7 @@ $btnWingetScan.Add_Click({
 
         # J. GOGDL / GOG GAMES WORKER
         if ("gogdl" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList, $GogdlExePath)
                     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -35831,7 +35904,7 @@ $btnWingetScan.Add_Click({
 
         # K. STEAM WORKER
         if ("steam" -in $enabled) {
-            $ps = [PowerShell]::Create()
+            $ps = New-WmtPooledPowerShell
             [void]$ps.AddScript({
                     param($IgnoreList)
                     Write-Output "LOG:Scanning Steam game manifests..."
@@ -36803,7 +36876,7 @@ $btnWingetFind.Add_Click({
             $needPypiIndex = (-not $fileExists) -or $isStale
             if ($needPypiIndex) {
                 Write-GuiLog "Fetching PyPI package index in background..."
-                $pypiPs = [PowerShell]::Create()
+                $pypiPs = New-WmtPooledPowerShell
                 [void]$pypiPs.AddScript({
                         param($CacheFile)
                         try {
@@ -36853,7 +36926,7 @@ $btnWingetFind.Add_Click({
                 $heroicAuth = Join-Path $env:APPDATA "heroic\gog_store\auth.json"
                 if (Test-Path -LiteralPath $heroicAuth -PathType Leaf) { $gogAuth = $heroicAuth }
             }
-            $cachePs = [PowerShell]::Create()
+            $cachePs = New-WmtPooledPowerShell
             [void]$cachePs.AddScript({
                     param($DoLeg, $DoGog, $LegendaryExe, $LegCacheFile, $GogAuthPath, $GogCacheFile)
 
@@ -37348,7 +37421,7 @@ $btnWingetFind.Add_Click({
         }
 
         # 4. EXECUTE THREAD (The Magic Part)
-        $script:AsyncPowerShell = [PowerShell]::Create().AddScript($scriptBlock).AddArgument($query).AddArgument($enabled).AddArgument($legendaryCacheFile).AddArgument($gogCacheFile).AddArgument($pypiIndexFile)
+        $script:AsyncPowerShell = (New-WmtPooledPowerShell).AddScript($scriptBlock).AddArgument($query).AddArgument($enabled).AddArgument($legendaryCacheFile).AddArgument($gogCacheFile).AddArgument($pypiIndexFile)
         $script:AsyncSearch = $script:AsyncPowerShell.BeginInvoke()
         $script:WmtPackageSearchStartedAt = Get-Date
         $script:SearchTimer.Start()
@@ -39783,7 +39856,7 @@ function Start-WmtLibraryScan {
     $gogCacheFile = Join-Path $dataPath "gog_library.json"
     $steamCacheFile = Join-Path $dataPath "steam_library.json"
 
-    $ps = [PowerShell]::Create()
+    $ps = New-WmtPooledPowerShell
     [void]$ps.AddScript({
             param($LegCacheFile, $GogCacheFile, $SteamCacheFile)
 
@@ -40750,9 +40823,7 @@ function Start-TweakButtonStatesBackgroundUpdate {
     if ($script:TweakStatesBgStarted) { return }
     $script:TweakStatesBgStarted = $true
 
-    $pool = Get-WmtBackgroundRunspacePool
-    $ps = [PowerShell]::Create()
-    $ps.RunspacePool = $pool
+    $ps = New-WmtPooledPowerShell
     [void]$ps.AddScript({
             # Collect all unique registry paths that Update-TweakButtonStates queries.
             # Pre-loading them in background means the UI thread never blocks on registry I/O.
@@ -41053,9 +41124,7 @@ function Start-OptionalFeaturesBackgroundCheck {
     }
 
     # Run in a background runspace (shared pool)
-    $pool = Get-WmtBackgroundRunspacePool
-    $ps = [PowerShell]::Create()
-    $ps.RunspacePool = $pool
+    $ps = New-WmtPooledPowerShell
     [void]$ps.AddScript({
             param($map)
             $results = @{}
@@ -41366,7 +41435,7 @@ function Start-WmtLibraryCacheBuilder {
         }
 
         Write-GuiLog "Building Legendary/GOGDL library caches in background..."
-        $ps = [PowerShell]::Create()
+        $ps = New-WmtPooledPowerShell
 
         # Self-contained scriptBlock: all logic is inline, paths are passed as args.
         # This runspace does NOT share the main script's functions or variables.
@@ -41841,6 +41910,7 @@ $onMainWindowClosing = {
     }
     Stop-FirewallRuleLoad
     Stop-FirewallDetailLoad
+    if ($script:WmtPeriodicMemoryTrimTimer) { try { $script:WmtPeriodicMemoryTrimTimer.Stop() } catch {}; $script:WmtPeriodicMemoryTrimTimer = $null }
     Stop-MyDeviceSectionJobs
     Stop-WmtDnsRunspaces
     # Clean up search runspace + timer (in-flight package searches)
