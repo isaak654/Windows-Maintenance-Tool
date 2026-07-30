@@ -22914,8 +22914,7 @@ function Set-WmtPowerSettingIndex {
                                           VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
                                     <ListView.View>
                                         <GridView>
-                                            <GridViewColumn Header="App Name" Width="170" DisplayMemberBinding="{Binding Name}"/>
-                                            <GridViewColumn Header="Package" Width="200" DisplayMemberBinding="{Binding Package}"/>
+                                            <GridViewColumn Header="Package" Width="370" DisplayMemberBinding="{Binding Package}"/>
                                         </GridView>
                                     </ListView.View>
                                 </ListView>
@@ -26168,6 +26167,11 @@ foreach ($tabButton in $script:WmtTabButtonControls) {
                     # Start Tweak States background load on first Tweaks tab visit
                     Start-TweakButtonStatesBackgroundUpdate
                     Start-OptionalFeaturesBackgroundCheck
+                    # Auto-load AppX bloatware list on first visit
+                    if (-not $script:AppxListLoaded) {
+                        $script:AppxListLoaded = $true
+                        $btnAppxLoad.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Button]::ClickEvent))
+                    }
                     if (-not $script:TweakStatesReady) { Set-TweakStatesLoadingOverlay -Visible $true }
                 }
                 elseif (-not $script:TweakStatesReady) {
@@ -38759,10 +38763,74 @@ if ($btnPerfUltimatePower) { $btnPerfUltimatePower.Add_Click({
         Clear-WmtRegCache @("HKLM:\SYSTEM\CurrentControlSet\Control\Power"); $h = (ConvertTo-Int (Get-WmtRegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "HibernateEnabled" 0) 0); if ($btnToggleHibernate) { Update-WmtTweakToggle $btnToggleHibernate ($h -ne 0) "Enable Hibernation" "Disable Hibernation" }
     }) }
 
+function Get-WmtRemovableAppxPackages {
+    # Returns array of PSCustomObjects with Name and PackageFullName
+    # Tries Get-AppxPackage first, falls back to DISM
+    $results = @()
+
+    # Method 1: Get-AppxPackage cmdlet
+    $useCmdlet = $false
+    try { if (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue) { $useCmdlet = $true } } catch {}
+
+    if ($useCmdlet) {
+        try {
+            $allPkgs = @(Get-AppxPackage -ErrorAction Stop | Where-Object { $_.Name })
+            Write-GuiLog "Found $($allPkgs.Count) total AppX packages (cmdlet)."
+            foreach ($pkg in $allPkgs) {
+                if ($pkg.NonRemovable -ne $true) {
+                    $results += [PSCustomObject]@{
+                        Name           = [string]$pkg.Name
+                        PackageFullName = [string]$pkg.PackageFullName
+                    }
+                }
+            }
+            if ($results.Count -gt 0) {
+                Write-GuiLog "$($results.Count) removable after filtering NonRemovable."
+                return ($results | Sort-Object Name)
+            }
+        }
+        catch {
+            Write-GuiLog "Get-AppxPackage failed: $($_.Exception.Message)"
+        }
+    }
+    else {
+        Write-GuiLog "Get-AppxPackage cmdlet not available, trying DISM fallback."
+    }
+
+    # Method 2: DISM fallback (works without the Appx module)
+    try {
+        $output = Invoke-WmtCliText -FilePath "dism" -Arguments "/Online /Get-ProvisionedAppxPackages" -TimeoutMs 120000
+        if ($output) {
+            # Parse each package block: extract Package Identity (full name) and DisplayName (short name)
+            $blocks = $output -split '(?=Package Identity\s*:)'
+            $dismCount = 0
+            foreach ($block in $blocks) {
+                $pkgId = ""
+                $dn = ""
+                if ($block -match 'Package Identity\s*:\s*(.+)') { $pkgId = $Matches[1].Trim() }
+                if ($block -match 'DisplayName\s*:\s*(.+)')      { $dn = $Matches[1].Trim() }
+                if (-not $pkgId) { continue }
+                if (-not $dn)    { $dn = $pkgId }
+                $dismCount++
+                $results += [PSCustomObject]@{
+                    Name           = $dn
+                    PackageFullName = $pkgId
+                }
+            }
+            Write-GuiLog "DISM found $dismCount provisioned packages."
+        }
+    }
+    catch {
+        Write-GuiLog "DISM fallback also failed: $($_.Exception.Message)"
+    }
+
+    return ($results | Sort-Object Name)
+}
+
 if ($btnAppxLoad) { $btnAppxLoad.Add_Click({
         Invoke-UiCommand {
             $lstAppxPackages.Items.Clear()
-            $apps = @(Get-AppxPackage | Where-Object { $_.Name -and $_.NonRemovable -ne $true } | Sort-Object Name)
+            $apps = @(Get-WmtRemovableAppxPackages)
             foreach ($app in $apps) {
                 $lstAppxPackages.Items.Add([PSCustomObject]@{
                         Name    = [string]$app.Name
@@ -38780,11 +38848,12 @@ if ($btnAppxRemoveSel) { $btnAppxRemoveSel.Add_Click({
             param($apps)
             foreach ($app in $apps) {
                 try {
-                    Remove-AppxPackage -Package (Get-AppxPackage -Name $app.Package).PackageFullName -ErrorAction SilentlyContinue
+                    # $app.Package already holds the full PackageFullName
+                    Remove-AppxPackage -Package $app.Package -ErrorAction Stop
                     Write-GuiLog "Removed: $($app.Name)"
                 }
                 catch {
-                    Write-GuiLog "Failed to remove: $($app.Name)"
+                    Write-GuiLog "Failed to remove: $($app.Name) - $($_.Exception.Message)"
                 }
             }
         } "Removing selected apps..." -ArgumentList $selected
