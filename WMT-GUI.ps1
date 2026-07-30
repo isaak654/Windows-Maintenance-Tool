@@ -41224,7 +41224,15 @@ function Start-OptionalFeaturesBackgroundCheck {
             if ($script:FeaturesCheckAsync -and $script:FeaturesCheckAsync.IsCompleted) {
                 $script:FeaturesCheckTimer.Stop()
                 try {
-                    $results = $script:FeaturesCheckPS.EndInvoke($script:FeaturesCheckAsync)
+                    $raw = $script:FeaturesCheckPS.EndInvoke($script:FeaturesCheckAsync)
+                    $results = $null
+                    if ($raw -and $raw.Count -gt 0) {
+                        $candidate = $raw[0]
+                        # EndInvoke returns PSDataCollection[PSObject]; unwrap to the hashtable
+                        if ($candidate -is [System.Collections.IDictionary]) {
+                            $results = $candidate
+                        }
+                    }
                     if ($results) {
                         foreach ($btnName in $results.Keys) {
                             $btn = Get-Ctrl $btnName
