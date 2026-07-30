@@ -40884,6 +40884,44 @@ function Start-TweakButtonStatesBackgroundUpdate {
                 "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FolderDescriptions\{31C0DD25-9439-4F12-BF41-7FF4EDA38762}\PropertyBag"
             )
 
+            # Local copy of Convert-WmtRegistryPath: this scriptblock runs on the pooled
+            # runspace (New-WmtPooledPowerShell), whose InitialSessionState only pre-loads
+            # MyDeviceCommonHelpers + ConvertTo-Int/ConvertTo-Str/Invoke-WmtCliText (see
+            # Initialize-WmtBackgroundRunspacePool). Convert-WmtRegistryPath isn't in that
+            # list, so without a local copy every call below throws "command not found",
+            # gets swallowed by the try/catch, and both $regCache and $pathChecks (via
+            # Get-WmtRegistryPathExists just below, which also depends on this) end up
+            # filled with $null/$false for every single path — which then gets cached and
+            # trusted as real data instead of falling back to a live read. Kept as a
+            # same-scoped copy (not a rename) so both call sites below need no changes.
+            function Convert-WmtRegistryPath {
+                param([string]$Path)
+                if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+
+                $normalized = $Path.Trim()
+                $normalized = $normalized -replace "^Registry::", ""
+                $normalized = $normalized -replace "^Computer\\", ""
+                $normalized = $normalized -replace "^HKEY_LOCAL_MACHINE\\", "HKLM:\"
+                $normalized = $normalized -replace "^HKEY_CURRENT_USER\\", "HKCU:\"
+                $normalized = $normalized -replace "^HKEY_CLASSES_ROOT\\", "HKCR:\"
+                $normalized = $normalized -replace "^HKEY_USERS\\", "HKU:\"
+
+                if ($normalized -notmatch '^(?<Hive>HKLM|HKCU|HKCR|HKU):\\(?<SubPath>.*)$') { return $null }
+
+                $hive = switch ($Matches.Hive) {
+                    "HKLM" { [Microsoft.Win32.RegistryHive]::LocalMachine }
+                    "HKCU" { [Microsoft.Win32.RegistryHive]::CurrentUser }
+                    "HKCR" { [Microsoft.Win32.RegistryHive]::ClassesRoot }
+                    "HKU" { [Microsoft.Win32.RegistryHive]::Users }
+                }
+
+                [PSCustomObject]@{
+                    Hive    = $hive
+                    Root    = $Matches.Hive
+                    SubPath = $Matches.SubPath
+                }
+            }
+
             $regCache = @{}
             # Use .NET RegistryKey for faster reads (~10x faster than Get-ItemProperty)
             foreach ($path in $paths) {
@@ -41046,10 +41084,16 @@ function Start-TweakButtonStatesBackgroundUpdate {
                 $script:TweakStatesBgTimer.Stop()
                 try {
                     $result = $script:TweakStatesBgPS.EndInvoke($script:TweakStatesBgAsync)
-                    # EndInvoke returns Collection<PSObject> — must use [-1] to get the
-                    # actual return value (same fix applied to My Device and Event Log).
-                    if ($result -is [System.Collections.ObjectModel.Collection[PSObject]] -and $result.Count -gt 0) {
-                        $result = $result[-1]
+                    # EndInvoke's real return type is PSDataCollection[PSObject] — that's the
+                    # "System.Management.Automation.PSDataCollection`1[[...PSObject...]]" seen
+                    # in the "unexpected type" log — NOT System.Collections.ObjectModel.Collection[PSObject].
+                    # The old check only matched the latter, so it never unwrapped the collection;
+                    # $result stayed a PSDataCollection, failed the -is [hashtable] test right
+                    # below, and every cache field was silently left unset, which forced
+                    # Update-TweakButtonStates onto its slow live-registry fallback every time.
+                    # Match both container types so this keeps working either way.
+                    if ($result -is [System.Management.Automation.PSDataCollection[psobject]] -or $result -is [System.Collections.ObjectModel.Collection[PSObject]]) {
+                        if ($result.Count -gt 0) { $result = $result[$result.Count - 1] }
                     }
                     if ($result -and $result -is [hashtable]) {
                         # Store the pre-loaded regCache, path checks, non-registry data, and support checks
