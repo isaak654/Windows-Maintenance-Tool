@@ -9,7 +9,7 @@
 # ==========================================
 # 1. SETUP
 # ==========================================
-$AppVersion = "6.4"
+$AppVersion = "6.5"
 $ErrorActionPreference = "SilentlyContinue"
 # Preserve UTF-8 for web content, alt codes, and Unicode symbols.
 # OEM encoding is only used per-process where needed (e.g. ipconfig).
@@ -2266,7 +2266,6 @@ function Set-WmtThemeResources {
 
     if (-not $Element -or -not $Palette) { return }
     foreach ($key in $Palette.Keys) {
-        if ($key -eq "LogText") { continue }
         $color = [System.Windows.Media.ColorConverter]::ConvertFromString($Palette[$key])
         $brush = [System.Windows.Media.SolidColorBrush]::new($color)
         $brush.Freeze()
@@ -8508,7 +8507,7 @@ function Show-WmtCleanupPreviewWpf {
             </DataGrid.Columns>
         </DataGrid>
 
-        <Border Grid.Row="1" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,12,0,0">
+        <Border Grid.Row="1" Background="{DynamicResource BgPanel}" BorderThickness="0" CornerRadius="4" Padding="12" Margin="0,12,0,0">
             <Grid>
                 <CheckBox Name="chkHideProtected" Content="Hide protected" Foreground="{DynamicResource Warning}" VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -10204,7 +10203,7 @@ function Show-RegScanSelection {
             <TextBlock Text="Checked targets are saved for future registry scans." Margin="0,4,0,0" Foreground="{DynamicResource TextSecondary}"/>
         </StackPanel>
 
-        <Border Grid.Row="1" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="14">
+        <Border Grid.Row="1" Background="{DynamicResource BgPanel}" BorderThickness="0" CornerRadius="4" Padding="14">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <UniformGrid Name="pnlChecks" Columns="2"/>
             </ScrollViewer>
@@ -10548,7 +10547,7 @@ function Show-RegistryCleaner {
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="14" Margin="0,0,0,12">
+        <Border Grid.Row="0" Background="{DynamicResource BgPanel}" BorderThickness="0" CornerRadius="4" Padding="14" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock Name="lblStatus" FontSize="18" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}"/>
                 <TextBlock Text="Review checked findings before fixing. Missing-file COM server entries are selected by default unless WMT classifies them as protected/merged Microsoft COM registrations. Press Enter to check highlighted rows. Right-click a row to open its key in Regedit or copy details. Review-only rows are never fixed automatically." Margin="0,4,0,0" Foreground="{DynamicResource TextSecondary}"/>
@@ -22258,6 +22257,30 @@ function Set-WmtPowerSettingIndex {
 
         <!-- Subtle Shadow Effects (reduced for clarity) -->
         <DropShadowEffect x:Key="CardShadow" ShadowDepth="1" BlurRadius="4" Opacity="0.15" Color="#000000"/>
+        <DropShadowEffect x:Key="SubtleElevation" ShadowDepth="0" BlurRadius="8" Opacity="0.25" Color="#000000"/>
+
+        <!-- GridView Column Header (theme-aware, borderless) -->
+        <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="UseLayoutRounding" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GridViewColumnHeader">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True" UseLayoutRounding="True">
+                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left" TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <!-- Transparent, theme-aware scrollbars for all WPF scroll viewers -->
         <Style x:Key="TransparentScrollRepeatButton" TargetType="{x:Type RepeatButton}">
@@ -22354,7 +22377,7 @@ function Set-WmtPowerSettingIndex {
             <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
         </Style>
 
-        <!-- Modern Navigation Button (crisp text) -->
+        <!-- Modern Navigation Button (monochromatic, accent active state only) -->
         <Style TargetType="Button" x:Key="NavBtn">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
@@ -22371,14 +22394,9 @@ function Set-WmtPowerSettingIndex {
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Grid>
-                            <Border Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4" UseLayoutRounding="True">
-                                <ContentPresenter VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
-                            </Border>
-                            <!-- Active Indicator Bar (left side) -->
-                            <Border Name="Indicator" Width="3" Background="{DynamicResource Accent}" HorizontalAlignment="Left" 
-                                    CornerRadius="2,0,0,2" Visibility="{TemplateBinding Tag}" UseLayoutRounding="True"/>
-                        </Grid>
+                        <Border Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4" UseLayoutRounding="True">
+                            <ContentPresenter VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                        </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgElevated}"/>
@@ -22390,12 +22408,13 @@ function Set-WmtPowerSettingIndex {
             </Setter>
         </Style>
 
-        <!-- Modern Action Button (clean, no blur) -->
+        <!-- Modern Action Button (borderless, spacious) -->
         <Style TargetType="Button" x:Key="ActionBtn">
             <Setter Property="Background" Value="{DynamicResource BgElevated}"/>
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="Height" Value="32"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Height" Value="34"/>
             <Setter Property="Margin" Value="4"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="Normal"/>
@@ -22406,9 +22425,9 @@ function Set-WmtPowerSettingIndex {
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4" 
-                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16,0"/>
+                        <Border Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6" 
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20,0"/>
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>
@@ -22416,7 +22435,6 @@ function Set-WmtPowerSettingIndex {
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{DynamicResource BgHover}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource TextSecondary}"/>
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
@@ -22429,12 +22447,10 @@ function Set-WmtPowerSettingIndex {
         <!-- Success/Green Button -->
         <Style TargetType="Button" x:Key="PositiveBtn" BasedOn="{StaticResource ActionBtn}">
             <Setter Property="Background" Value="{DynamicResource Success}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource SuccessHover}"/>
             <Setter Property="Foreground" Value="{DynamicResource SuccessText}"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{DynamicResource SuccessHover}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource SuccessHover}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -22442,12 +22458,10 @@ function Set-WmtPowerSettingIndex {
         <!-- Danger/Red Button -->
         <Style TargetType="Button" x:Key="DestructiveBtn" BasedOn="{StaticResource ActionBtn}">
             <Setter Property="Background" Value="{DynamicResource Danger}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource DangerHover}"/>
             <Setter Property="Foreground" Value="{DynamicResource DangerText}"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{DynamicResource DangerHover}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource DangerHover}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -22455,12 +22469,10 @@ function Set-WmtPowerSettingIndex {
         <!-- Warning/Yellow Button -->
         <Style TargetType="Button" x:Key="WarningBtn" BasedOn="{StaticResource ActionBtn}">
             <Setter Property="Background" Value="{DynamicResource Warning}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource WarningHover}"/>
             <Setter Property="Foreground" Value="{DynamicResource WarningText}"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{DynamicResource WarningHover}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource WarningHover}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -22468,12 +22480,10 @@ function Set-WmtPowerSettingIndex {
         <!-- Info/Blue Button -->
         <Style TargetType="Button" x:Key="UtilityBtn" BasedOn="{StaticResource ActionBtn}">
             <Setter Property="Background" Value="{DynamicResource Info}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
             <Setter Property="Foreground" Value="{DynamicResource InfoText}"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{DynamicResource Accent}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -22481,7 +22491,6 @@ function Set-WmtPowerSettingIndex {
         <!-- Accent Button -->
         <Style TargetType="Button" x:Key="AccentBtn" BasedOn="{StaticResource ActionBtn}">
             <Setter Property="Background" Value="{DynamicResource Accent}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}"/>
             <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Style.Triggers>
@@ -22519,14 +22528,15 @@ function Set-WmtPowerSettingIndex {
             </Style.Triggers>
         </Style>
 
-        <!-- Card Style Border (clean, crisp) -->
+        <!-- Card Style Border (borderless, elevation via bg shift + shadow) -->
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="Margin" Value="6"/>
             <Setter Property="Padding" Value="16"/>
+            <Setter Property="Effect" Value="{StaticResource SubtleElevation}"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="UseLayoutRounding" Value="True"/>
         </Style>
@@ -22561,7 +22571,7 @@ function Set-WmtPowerSettingIndex {
         </Grid.ColumnDefinitions>
 
         <!-- Sidebar -->
-        <Border Grid.Column="0" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" Background="{DynamicResource BgPanel}" BorderThickness="0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/> 
@@ -22572,12 +22582,12 @@ function Set-WmtPowerSettingIndex {
                 </Grid.RowDefinitions>
 
                 <!-- Header/Search -->
-                <Border Name="bdQuickFind" Grid.Row="0" Background="{DynamicResource BgDark}" Margin="16,20,16,12" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Cursor="IBeam">
+                <Border Name="bdQuickFind" Grid.Row="0" Background="{DynamicResource BgDark}" Margin="16,20,16,12" CornerRadius="8" BorderThickness="0" Cursor="IBeam">
                     <StackPanel Margin="12">
                         <TextBlock Text="Quick Find" FontSize="11" Foreground="{DynamicResource TextMuted}" FontWeight="SemiBold" Margin="0,0,0,8"/>
                         <TextBox Name="txtGlobalSearch" Height="36" ToolTip="Search any function..." VerticalContentAlignment="Center"
                                  Background="{DynamicResource BgPanel}" Foreground="{DynamicResource TextPrimary}"
-                                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="10,0"/>
+                                 BorderThickness="0" Padding="10,0"/>
                     </StackPanel>
                 </Border>
 
@@ -22613,18 +22623,18 @@ function Set-WmtPowerSettingIndex {
                               ShowsPreview="True"/>
 
                 <!-- Log Panel -->
-                <Border Grid.Row="4" Background="{DynamicResource BgDark}" Margin="12" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" MinHeight="140" VerticalAlignment="Stretch">
+                <Border Grid.Row="4" Background="{DynamicResource BgDark}" Margin="12" CornerRadius="8" BorderThickness="0" MinHeight="140" VerticalAlignment="Stretch">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
-                        <Border Grid.Row="0" Background="{DynamicResource BgPanel}" CornerRadius="8,8,0,0" Padding="12,8">
+                        <Border Grid.Row="0" Background="{DynamicResource BgPanel}" CornerRadius="8,8,0,0" Padding="12,8" BorderThickness="0">
                             <TextBlock Text="Activity Log" FontSize="11" Foreground="{DynamicResource TextMuted}" FontWeight="SemiBold"/>
                         </Border>
                         <ScrollViewer Name="svLog" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="8" UseLayoutRounding="True" VerticalAlignment="Stretch">
                             <TextBox Name="LogBox" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas, monospace" FontSize="12" 
-                                     Background="Transparent" Foreground="#3FB950" BorderThickness="0" Padding="4"
+                                     Background="Transparent" Foreground="{DynamicResource LogText}" BorderThickness="0" Padding="4"
                                      VerticalAlignment="Stretch" AcceptsReturn="True"
                                      SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display"/>
                         </ScrollViewer>
@@ -22649,12 +22659,12 @@ function Set-WmtPowerSettingIndex {
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="320"/>
+                                <ColumnDefinition Width="380"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center">
                                 <StackPanel>
                                     <TextBlock Name="lblWingetTitle" Text="Package Updates" Style="{StaticResource SectionHeader}" Margin="0"/>
-                                    <TextBlock Name="lblWingetStatus" Text="Ready to scan" Foreground="#D29922" FontSize="13" Visibility="Visible"/>
+                                    <TextBlock Name="lblWingetStatus" Text="Ready to scan" Foreground="{DynamicResource TextSecondary}" FontSize="13" Visibility="Visible"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
                                         <ProgressBar Name="pbWingetProgress" Width="260" Height="8" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed"/>
                                         <TextBlock Name="lblWingetProgress" Text="" Margin="10,0,0,0" Foreground="{DynamicResource TextMuted}" FontSize="12" Visibility="Collapsed"/>
@@ -22668,13 +22678,13 @@ function Set-WmtPowerSettingIndex {
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBox Name="txtWingetSearch" Grid.Column="0" Height="40" VerticalContentAlignment="Center" Text="Search packages..."/>
-                                <Button Name="btnWingetFind" Grid.Column="1" Content="Search" Width="100" Height="40" Margin="8,0,0,0" Style="{StaticResource AccentBtn}"/>
+                                <Button Name="btnWingetFind" Grid.Column="1" Content="Search" Height="40" Padding="16,0" Margin="8,0,0,0" Style="{StaticResource AccentBtn}"/>
                             </Grid>
                         </Grid>
                     </Border>
 
                     <!-- List Card -->
-                    <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="0">
+                    <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="0" Margin="0">
                         <ListView Name="lstWinget" Background="Transparent" Foreground="{DynamicResource TextPrimary}" BorderThickness="0" 
                                   SelectionMode="Extended" AlternationCount="2" ItemContainerStyle="{StaticResource FwItem}"
                                   VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
@@ -22690,8 +22700,8 @@ function Set-WmtPowerSettingIndex {
                                         </GridViewColumn.CellTemplate>
                                     </GridViewColumn>
                                     <GridViewColumn Header="Source" Width="90" DisplayMemberBinding="{Binding Source}"/>
-                                    <GridViewColumn Header="Package Name" Width="280" DisplayMemberBinding="{Binding Name}"/>
-                                    <GridViewColumn Header="ID" Width="220" DisplayMemberBinding="{Binding Id}"/>
+                                    <GridViewColumn Header="Package Name" Width="260" DisplayMemberBinding="{Binding Name}"/>
+                                    <GridViewColumn Header="ID" Width="200" DisplayMemberBinding="{Binding Id}"/>
                                     <GridViewColumn Header="Installed" Width="110" DisplayMemberBinding="{Binding Version}"/>
                                     <GridViewColumn Header="Latest" Width="110" DisplayMemberBinding="{Binding Available}"/>
                                 </GridView>
@@ -22837,7 +22847,7 @@ function Set-WmtPowerSettingIndex {
                 <WrapPanel Name="pnlTweaksCards" Margin="20" ItemWidth="350">
 
                     <!-- AI &amp; COPILOT (NEW) -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -22860,7 +22870,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- PERFORMANCE -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -22900,7 +22910,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- APPX BLOATWARE REMOVAL -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -22910,7 +22920,7 @@ function Set-WmtPowerSettingIndex {
                                 <TextBlock Text="Appx Bloatware" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}"/>
                                 <TextBlock Text="Remove pre-installed UWP/Modern apps" FontSize="11" Foreground="{DynamicResource TextMuted}" Margin="0,2,0,8"/>
                                 <TextBlock Text="Select apps to remove (use Ctrl+Click for multiple)" Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,8" FontSize="12"/>
-                                <ListView Name="lstAppxPackages" Height="200" Background="{DynamicResource BgDark}" Foreground="{DynamicResource TextPrimary}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" SelectionMode="Multiple"
+                                <ListView Name="lstAppxPackages" Height="200" Background="{DynamicResource BgDark}" Foreground="{DynamicResource TextPrimary}" BorderThickness="0" SelectionMode="Multiple"
                                           VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
                                     <ListView.View>
                                         <GridView>
@@ -22928,7 +22938,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- WINDOWS OPTIONAL FEATURES -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -22961,7 +22971,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- SERVICES MANAGEMENT -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -22980,7 +22990,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- SCHEDULED TASKS -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -22999,7 +23009,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- WINDOWS UPDATE -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23020,7 +23030,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- NETWORK TWEAKS -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23041,7 +23051,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- TASKBAR &amp; SYSTEM CLOCK -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23067,7 +23077,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- START MENU (NEW) -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23086,7 +23096,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- EXPLORER &amp; FILES -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23116,7 +23126,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- MOUSE &amp; FOLDER OPENING -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23148,7 +23158,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- KEYBOARD -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23170,7 +23180,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- ACCESSIBILITY -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23191,7 +23201,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- CONTEXT MENU -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23231,7 +23241,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- PRIVACY -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23264,7 +23274,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- SEARCH &amp; INDEXING -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23285,7 +23295,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- GAMING -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23307,7 +23317,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- MULTI-TASKING (NEW) -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23326,7 +23336,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- SOUND -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23347,7 +23357,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- VISUAL EFFECTS -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23369,7 +23379,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- DISPLAY -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23392,7 +23402,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- NOTIFICATIONS &amp; LOCK SCREEN -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23416,7 +23426,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- STARTUP BEHAVIOR -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23434,7 +23444,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- SECURITY SHORTCUTS -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23456,7 +23466,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- DEVELOPER -->
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
@@ -23485,8 +23495,8 @@ function Set-WmtPowerSettingIndex {
                 </WrapPanel>
             </StackPanel>
         </ScrollViewer>
-        <!-- Loading overlay shown while tweak states cache is being loaded in background -->
-        <Border Name="tweaksLoadingOverlay" Background="#CC000000" Visibility="Collapsed" Panel.ZIndex="999">
+        <!-- Loading overlay OUTSIDE ScrollViewer so it covers the viewport, not scrollable content -->
+        <Border Name="tweaksLoadingOverlay" Background="#CC000000" Visibility="Collapsed" Panel.ZIndex="999" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <TextBlock Text="Loading tweak states..." Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,12"/>
                 <TextBlock Text="Buttons will be ready in a moment" Foreground="#FFCCCCCC" FontSize="12" HorizontalAlignment="Center"/>
@@ -23576,7 +23586,7 @@ function Set-WmtPowerSettingIndex {
                                 <ScrollViewer Name="pnlMyDevice" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                     <StackPanel>
                                         <WrapPanel Name="pnlMyDeviceCards" Margin="20" ItemWidth="350">
-                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                                         <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
                                                             <Path Fill="{DynamicResource Accent}" Stretch="Uniform" Width="22" Height="22" Data="M0 3.4l10-1.4v9H0V3.4zm11-1.5L23 0v11H11V1.9zM0 12h10v8.6l-10-1.4V12zm11 0h12v10l-12-1.9V12z"/>
@@ -23598,7 +23608,7 @@ function Set-WmtPowerSettingIndex {
                                                     </Grid>
                                                 </Border>
 
-                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto"/>
@@ -23653,7 +23663,7 @@ function Set-WmtPowerSettingIndex {
                                                     </Grid>
                                                 </Border>
 
-                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto"/>
@@ -23691,7 +23701,7 @@ function Set-WmtPowerSettingIndex {
                                                 </Border>
 
                                                 <!-- Battery / Power Card -->
-                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto"/>
@@ -23741,7 +23751,7 @@ function Set-WmtPowerSettingIndex {
                                                     </Grid>
                                                 </Border>
 
-                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                                         <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
                                                             <Path Fill="{DynamicResource Accent}" Stretch="Uniform" Width="22" Height="22" Data="M223.125 24.938L205.062 43l-5.875-5.875-6.625-6.594-6.593 6.595-132.314 132.28L47.03 176l6.626 6.594 5.907 5.906-18.032 18.063-2.75 2.718v38.97h18.69V217l15.31-15.28 35.657 35.624-18.062 18.062-2.72 2.75v38.939h18.69v-31.22l15.31-15.312 35.157 35.157-18.062 18.06-2.75 2.72v38.969h18.688v-31.19l15.343-15.342 36.657 36.656-18.062 18.062-2.75 2.72v38.968h18.688v-31.25l15.312-15.313 35.656 35.658-18.06 18.062-2.72 2.75v38.938h18.688v-31.22l15.312-15.312 35.156 35.156-18.062 18.063-2.75 2.72v38.966h18.687v-31.187l15.345-15.344 5.78 5.783 6.595 6.625 6.594-6.625 132.312-132.25 6.625-6.625-6.624-6.594-5.812-5.813 18.062-18.06-13.22-13.19-18.06 18.033-35.126-35.125 18.03-18.063-13.217-13.22L401 238.938l-35.625-35.625 18.063-18.062-13.22-13.22-18.062 18.064-36.656-36.656 18.063-18.063-13.22-13.188-18.03 18.063-35.188-35.188 18.063-18.03-13.22-13.22-18.03 18.063L218.28 56.22l18.064-18.064-13.22-13.218zm-29.22 67l209.376 209.718-73.5 73.5L120.376 165.75l73.53-73.813zm-32.5 64.968l-13.186 13.25 173.968 172.72 6.562 6.53 6.594-6.53 34.5-34.25-13.156-13.282-27.938 27.75-167.344-166.188zM102.5 174.312L320.938 392.75v30.688L74 176.53l28.5-2.218zm319.688 134.875l25.875 3.25.5.5-108.938 108.938V391.78l82.563-82.592z"/>
@@ -23755,7 +23765,7 @@ function Set-WmtPowerSettingIndex {
                                                     </Grid>
                                                 </Border>
 
-                                                <Border Name="bdMyDeviceGPU" Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15" ToolTip="Click a GPU entry to open that GPU vendor's control panel.">
+                                                <Border Name="bdMyDeviceGPU" Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15" ToolTip="Click a GPU entry to open that GPU vendor's control panel.">
                                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                                     <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
                                                             <Viewbox Width="22" Height="22">
@@ -23801,7 +23811,7 @@ function Set-WmtPowerSettingIndex {
                                                     </Grid>
                                                 </Border>
 
-                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                                         <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
                                                             <Viewbox Width="22" Height="22">
@@ -23867,7 +23877,7 @@ function Set-WmtPowerSettingIndex {
                                                     </Grid>
                                                 </Border>
 
-                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                                                <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderThickness="0" Margin="10" Padding="15">
                                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                                         <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
                                                             <Viewbox Width="22" Height="22">
@@ -23927,14 +23937,14 @@ function Set-WmtPowerSettingIndex {
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="Firewall Manager" Style="{StaticResource SectionHeader}" Margin="0"/>
-                                <TextBlock Name="lblFwStatus" Text="Ready" Foreground="#D29922" FontSize="13" Visibility="Collapsed"/>
+                                <TextBlock Name="lblFwStatus" Text="Ready" Foreground="{DynamicResource TextSecondary}" FontSize="13" Visibility="Collapsed"/>
                             </StackPanel>
                             <TextBox Name="txtFwSearch" Grid.Column="1" Text="Search rules..." ToolTip="Filter by name or port"/>
                         </Grid>
                     </Border>
 
                     <!-- Rules List Card -->
-                    <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="0">
+                    <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="0" Margin="0">
                         <ListView Name="lstFirewall" Background="Transparent" Foreground="{DynamicResource TextPrimary}" BorderThickness="0" AlternationCount="2" ItemContainerStyle="{StaticResource FwItem}">
                             <ListView.View>
                                 <GridView>
@@ -23948,8 +23958,8 @@ function Set-WmtPowerSettingIndex {
                                                         <Style TargetType="TextBlock">
                                                             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
                                                             <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding Action}" Value="Allow"><Setter Property="Foreground" Value="#3FB950"/></DataTrigger>
-                                                                <DataTrigger Binding="{Binding Action}" Value="Block"><Setter Property="Foreground" Value="#F85149"/></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Action}" Value="Allow"><Setter Property="Foreground" Value="{DynamicResource Success}"/></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Action}" Value="Block"><Setter Property="Foreground" Value="{DynamicResource Danger}"/></DataTrigger>
                                                             </Style.Triggers>
                                                         </Style>
                                                     </TextBlock.Style>
@@ -23965,8 +23975,8 @@ function Set-WmtPowerSettingIndex {
                                                         <Style TargetType="TextBlock">
                                                             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
                                                             <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding Enabled}" Value="True"><Setter Property="Foreground" Value="#3FB950"/></DataTrigger>
-                                                                <DataTrigger Binding="{Binding Enabled}" Value="False"><Setter Property="Foreground" Value="#F85149"/></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Enabled}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Success}"/></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Enabled}" Value="False"><Setter Property="Foreground" Value="{DynamicResource Danger}"/></DataTrigger>
                                                             </Style.Triggers>
                                                         </Style>
                                                     </TextBlock.Style>
@@ -24040,7 +24050,7 @@ function Set-WmtPowerSettingIndex {
                         </StackPanel>
                     </Border>
 
-                    <Border Background="{DynamicResource BgPanel}" CornerRadius="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="10" Padding="15">
+                    <Border Style="{StaticResource CardStyle}">
                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Width="48" Height="48" CornerRadius="8" Background="{DynamicResource BgElevated}" VerticalAlignment="Top" Margin="0,0,15,0">
                                 <Viewbox Width="24" Height="24">
@@ -24159,7 +24169,16 @@ function Set-WmtPowerSettingIndex {
 # ==========================================
 # 4. INIT & HELPERS
 # ==========================================
-$window = New-WmtWindowFromFullXaml -Xaml $xaml -NoOwner
+$ErrorActionPreference = 'Stop'
+try {
+    $window = New-WmtWindowFromFullXaml -Xaml $xaml -NoOwner
+} catch {
+    Write-Host "FATAL: XAML load failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Inner: $(($_.Exception.InnerException).Message)" -ForegroundColor Yellow
+    [System.Windows.MessageBox]::Show("XAML load failed:\n$($_.Exception.Message)", 'WMT Startup Error', 'OK', 'Error') | Out-Null
+    exit 1
+}
+$ErrorActionPreference = 'SilentlyContinue'
 $script:LogBox = $window.FindName("LogBox")
 $script:WmtControlCache = @{}
 
@@ -24573,7 +24592,6 @@ $iconDeferTimer.Add_Tick({
         Set-ButtonIcon "btnCleanDisk" "M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" "Disk Cleanup" "Opens the built-in Windows Disk Cleanup utility"
         Set-ButtonIcon "btnCleanTemp" "M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" "Delete Temp Files" "Deletes temporary files from User and System Temp folders"
         Set-ButtonIcon "btnCleanShortcuts" "M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3M19,19H5V5H19V19M10,17L5,12L6.41,10.59L10,14.17L17.59,6.58L19,8L10,17Z" "Fix Shortcuts" "Scans for and fixes broken .lnk shortcuts"
-        (Get-Ctrl "btnWingetFind").Width = 100
         Set-ButtonIcon "btnWingetFind" "M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z" "Search" "Search Winget"
         Set-ButtonIcon "btnWingetScan" "M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15V18M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z" "Refresh Updates" "Checks enabled providers for available application updates"
         Set-ButtonIcon "btnWingetUpdateSel" "M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z" "Update Checked" "Updates the checked applications; falls back to selected rows if nothing is checked"
@@ -24583,8 +24601,8 @@ $iconDeferTimer.Add_Tick({
         Set-ButtonIcon "btnSupportDiscord" "M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09c-.01-.02-.04-.03-.07-.03c-1.5.26-2.93.71-4.27 1.33c-.01 0-.02.01-.03.02c-2.72 4.07-3.47 8.03-3.1 11.95c0 .02.01.04.03.05c1.8 1.32 3.53 2.12 5.2 2.65c.03.01.06 0 .07-.02c.4-.55.76-1.13 1.07-1.74c.02-.04 0-.08-.04-.09c-.57-.22-1.11-.48-1.64-.78c-.04-.02-.04-.08.01-.11c.11-.08.22-.17.33-.25c.02-.02.05-.02.07-.01c3.44 1.57 7.15 1.57 10.55 0c.02-.01.05-.01.07.01c.11.09.22.17.33.26c.04.03.04.09-.01.11c-.52.31-1.07.56-1.64.78c-.04.01-.05.06-.04.09c.32.61.68 1.19 1.07 1.74c.03.01.06.02.09.01c1.67-.53 3.4-1.33 5.2-2.65c.02-.01.03-.03.03-.05c.44-4.53-.73-8.46-3.1-11.95c-.01-.01-.02-.02-.04-.02z" "Join Discord" "Opens the community support Discord server"
         Set-ButtonIcon "btnSupportIssue" "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" "Report Issue" "Opens the GitHub Issues page to report bugs"
         Set-ButtonIcon "btnNavDownloads" "M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,6H13V12H11V6M11,14H13V16H11V14Z" "Release Downloads" "Show latest release download counts"
-        Set-ButtonIcon "btnDonateIos12" "M7,15H9C9,16.08 10.37,17 12,17C13.63,17 15,16.08 15,15C15,13.9 13.9,13.5 12,13.5C8.36,13.5 6,12.28 6,10C6,7.24 8.7,5 12,5V3H14V5C15.68,5.37 16.86,6.31 17.38,7.5H15.32C14.93,6.85 13.95,6.2 12,6.2C10.37,6.2 9,7.11 9,8.2C9,9.3 10.1,9.7 12,9.7C15.64,9.7 18,10.92 18,13.2C18,15.96 15.3,18.2 12,18.2V20H10V18.2C8.32,17.83 7.14,16.89 6.62,15.7L8.68,15Z" "Sponsor Lil_Batti" "Support Lil_Batti via GitHub Sponsors" "#00FF00"
-        Set-ButtonIcon "btnDonate" "M7,15H9C9,16.08 10.37,17 12,17C13.63,17 15,16.08 15,15C15,13.9 13.9,13.5 12,13.5C8.36,13.5 6,12.28 6,10C6,7.24 8.7,5 12,5V3H14V5C15.68,5.37 16.86,6.31 17.38,7.5H15.32C14.93,6.85 13.95,6.2 12,6.2C10.37,6.2 9,7.11 9,8.2C9,9.3 10.1,9.7 12,9.7C15.64,9.7 18,10.92 18,13.2C18,15.96 15.3,18.2 12,18.2V20H10V18.2C8.32,17.83 7.14,16.89 6.62,15.7L8.68,15Z" "Sponsor Chaython" "Support Chaython via GitHub Sponsors" "#00FF00"
+        Set-ButtonIcon "btnDonateIos12" "M7,15H9C9,16.08 10.37,17 12,17C13.63,17 15,16.08 15,15C15,13.9 13.9,13.5 12,13.5C8.36,13.5 6,12.28 6,10C6,7.24 8.7,5 12,5V3H14V5C15.68,5.37 16.86,6.31 17.38,7.5H15.32C14.93,6.85 13.95,6.2 12,6.2C10.37,6.2 9,7.11 9,8.2C9,9.3 10.1,9.7 12,9.7C15.64,9.7 18,10.92 18,13.2C18,15.96 15.3,18.2 12,18.2V20H10V18.2C8.32,17.83 7.14,16.89 6.62,15.7L8.68,15.Z" "Sponsor Lil_Batti" "Support Lil_Batti via GitHub Sponsors"
+        Set-ButtonIcon "btnDonate" "M7,15H9C9,16.08 10.37,17 12,17C13.63,17 15,16.08 15,15C15,13.9 13.9,13.5 12,13.5C8.36,13.5 6,12.28 6,10C6,7.24 8.7,5 12,5V3H14V5C15.68,5.37 16.86,6.31 17.38,7.5H15.32C14.93,6.85 13.95,6.2 12,6.2C10.37,6.2 9,7.11 9,8.2C9,9.3 10.1,9.7 12,9.7C15.64,9.7 18,10.92 18,13.2C18,15.96 15.3,18.2 12,18.2V20H10V18.2C8.32,17.83 7.14,16.89 6.62,15.7L8.68,15.Z" "Sponsor Chaython" "Support Chaython via GitHub Sponsors" "#00FF00"
         Set-ButtonIcon "btnDnsGoogle" "M21.35,11.1H12.18V13.83H18.69C18.36,17.64 15.19,19.27 12.19,19.27C8.36,19.27 5,16.25 5,12C5,7.9 8.2,4.73 12.2,4.73C15.29,4.73 17.1,6.7 17.1,6.7L19,4.72C19,4.72 16.56,2 12.1,2C6.42,2 2.03,6.8 2.03,12C2.03,17.05 6.16,22 12.25,22C17.6,22 21.5,18.33 21.5,12.91C21.5,11.76 21.35,11.1 21.35,11.1V11.1Z" "Google" "Sets DNS to 8.8.8.8 & 8.8.4.4"
         Set-ButtonIcon "btnDnsCloudflare" "M19.35,10.04C18.67,6.59 15.64,4 12,4C9.11,4 6.6,5.64 5.35,8.04C2.34,8.36 0,10.91 0,14A6,6 0 0,0 6,20H19A5,5 0 0,0 24,15C24,12.36 21.95,10.22 19.35,10.04Z" "Cloudflare" "Sets DNS to 1.1.1.1 & 1.0.0.1"
         Set-ButtonIcon "btnDnsQuad9" "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M10,17L6,13L7.41,11.59L10,14.17L16.59,7.58L18,9L10,17Z" "Quad9" "Sets DNS to 9.9.9.9 (Malware Blocking)"
@@ -26124,6 +26142,9 @@ foreach ($tabButton in $script:WmtTabButtonControls) {
     $tabButton.Add_Click({
             param($s, $e)
             foreach ($panel in $script:WmtPanelControls) { $panel.Visibility = "Collapsed" }
+            # Hide tweaks overlay when leaving tweaks tab
+            $tweaksOverlay = Get-Ctrl "tweaksLoadingOverlay"
+            if ($tweaksOverlay) { $tweaksOverlay.Visibility = "Collapsed" }
             foreach ($btn in $script:WmtTabButtonControls) {
                 $btn.ClearValue([System.Windows.Controls.Button]::BackgroundProperty)
                 $btn.Foreground = $window.Resources["TextSecondary"]
@@ -26167,10 +26188,10 @@ foreach ($tabButton in $script:WmtTabButtonControls) {
                     # Start Tweak States background load on first Tweaks tab visit
                     Start-TweakButtonStatesBackgroundUpdate
                     Start-OptionalFeaturesBackgroundCheck
-                    # Auto-load AppX bloatware list on first visit
+                    # Auto-load AppX bloatware list on first visit (background, no busy cursor)
                     if (-not $script:AppxListLoaded) {
                         $script:AppxListLoaded = $true
-                        $btnAppxLoad.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Button]::ClickEvent))
+                        Start-AppxBackgroundLoad
                     }
                     if (-not $script:TweakStatesReady) { Set-TweakStatesLoadingOverlay -Visible $true }
                 }
@@ -32215,7 +32236,7 @@ function Show-ProviderManager {
         }
 
         $row = @"
-            <Border Background="{DynamicResource BgElevated}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10" ToolTip="$tip">
+            <Border Background="{DynamicResource BgElevated}" BorderThickness="0" CornerRadius="8" Padding="10" Margin="0,0,0,10" ToolTip="$tip">
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -32304,7 +32325,7 @@ function Show-ProviderManager {
 
         <ScrollViewer Grid.Row="1" Margin="0,12,0,0" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-            <Border Background="{DynamicResource BgElevated}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,14"
+            <Border Background="{DynamicResource BgElevated}" BorderThickness="0" CornerRadius="10" Padding="12" Margin="0,0,0,14"
                     ToolTip="Configure automatic update scans, installation behavior, and background operation.">
                 <Grid>
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -41405,6 +41426,52 @@ $onMainWindowSizeChanged = {
 }.GetNewClosure()
 [void]$window.Add_SizeChanged($onMainWindowSizeChanged)
 
+# --- Background AppX Load (no busy cursor, no UI thread blocking) ---
+function Start-AppxBackgroundLoad {
+    $ps = New-WmtPooledPowerShell
+    [void]$ps.AddScript({
+        # Inline AppX query — no dependency on script-scope functions
+        $results = @()
+        try {
+            $allPkgs = @(Get-AppxPackage -ErrorAction Stop | Where-Object { $_.Name })
+            foreach ($pkg in $allPkgs) {
+                if ($pkg.NonRemovable -ne $true) {
+                    $results += [PSCustomObject]@{
+                        Name           = [string]$pkg.Name
+                        PackageFullName = [string]$pkg.PackageFullName
+                    }
+                }
+            }
+            $results = @($results | Sort-Object Name)
+        } catch {}
+        return ,$results
+    })
+    [void]$ps.BeginInvoke()
+    # Poll for completion and dispatch to UI thread
+    $null = Register-ObjectEvent -InputObject $ps -EventName InvocationStateChanged -Action {
+        if ($Event.SourceEventArgs.State -eq 'Completed') {
+            try {
+                $results = $Event.SourceEventArgs.Result.EndInvoke($Event.Source)
+                $window.Dispatcher.Invoke({
+                    $lst = Get-Ctrl "lstAppxPackages"
+                    if ($lst) {
+                        $lst.Items.Clear()
+                        foreach ($app in $results) {
+                            [void]$lst.Items.Add([PSCustomObject]@{
+                                Name    = $app.Name
+                                Package = $app.PackageFullName
+                            })
+                        }
+                        Write-GuiLog "Loaded $($results.Count) removable UWP apps."
+                    }
+                })
+            } catch {}
+            try { Unregister-Event -SourceIdentifier $Event.SourceEventArgs.AsyncOperation.GetHashCode() -ErrorAction SilentlyContinue } catch {}
+            try { $Event.Source.Dispose() } catch {}
+        }
+    }
+}
+
 # Start background library cache builder for Legendary/GOGDL on boot
 # so the main Updates search box can find owned games without a first-run delay.
 $script:WmtLibraryCacheRunspace = $null
@@ -42150,10 +42217,15 @@ $onMainWindowClosed = {
 # Use a real WPF Application message loop instead of ShowDialog().
 # ShowDialog() can unwind after a modal window is hidden, which leaves a stale tray icon that vanishes when clicked.
 try {
+    $ErrorActionPreference = 'Stop'
     $script:WmtApplication = [System.Windows.Application]::Current
     if (-not $script:WmtApplication) {
         $script:WmtApplication = New-Object System.Windows.Application
     }
+    if (-not $script:WmtApplication) {
+        throw [System.ApplicationException]::new('Failed to create WPF Application object. Check that PresentationFramework is loaded.')
+    }
+    $ErrorActionPreference = 'SilentlyContinue'
 
     if ($script:WmtDispatcherUnhandledHandler) {
         try { $script:WmtApplication.remove_DispatcherUnhandledException($script:WmtDispatcherUnhandledHandler) } catch {}
