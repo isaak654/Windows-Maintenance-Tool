@@ -22562,6 +22562,50 @@ function Set-WmtPowerSettingIndex {
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
         </Style>
+
+        <!-- Modern Unified Search Box (Win11 rounded, glow-on-focus) -->
+        <Style x:Key="ModernSearchBoxStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource BgDark}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="UseLayoutRounding" Value="True"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource TextMuted}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Search Clear Button (subtle X inside the search box) -->
+        <Style x:Key="SearchClearBtnStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="4" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -22672,14 +22716,33 @@ function Set-WmtPowerSettingIndex {
                                     <TextBlock Name="lblWingetLastResult" Text="" Margin="0,6,0,0" Foreground="{DynamicResource TextMuted}" FontSize="12" Visibility="Collapsed"/>
                                 </StackPanel>
                             </StackPanel>
-                            <Grid Grid.Column="1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Name="txtWingetSearch" Grid.Column="0" Height="40" VerticalContentAlignment="Center" Text="Search packages..."/>
-                                <Button Name="btnWingetFind" Grid.Column="1" Content="Search" Height="40" Padding="16,0" Margin="8,0,0,0" Style="{StaticResource AccentBtn}"/>
-                            </Grid>
+                            <Border Grid.Column="1" Style="{StaticResource ModernSearchBoxStyle}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <!-- Inline magnifying glass icon -->
+                                    <Path Grid.Column="0" Data="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"
+                                          Fill="{DynamicResource TextMuted}" Stretch="Uniform" Height="14" Width="14"
+                                          VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                    <TextBox Name="txtWingetSearch" Grid.Column="1" Height="38"
+                                             VerticalContentAlignment="Center" Text="Search packages..."
+                                             Background="Transparent" BorderThickness="0"
+                                             Padding="0,0,0,0" Margin="0"
+                                             Foreground="{DynamicResource TextSecondary}"
+                                             CaretBrush="{DynamicResource TextPrimary}"
+                                             SelectionBrush="{DynamicResource Accent}"/>
+                                    <!-- Inline clear button (hidden by default) -->
+                                    <Button Name="btnWingetClearSearch" Grid.Column="2" Content="X"
+                                            Width="28" Height="28" Margin="0,0,6,0"
+                                            VerticalAlignment="Center" HorizontalAlignment="Center"
+                                            Visibility="Collapsed" Cursor="Hand"
+                                            ToolTip="Clear search"
+                                            Style="{StaticResource SearchClearBtnStyle}"/>
+                                </Grid>
+                            </Border>
                         </Grid>
                     </Border>
 
@@ -22690,7 +22753,7 @@ function Set-WmtPowerSettingIndex {
                                   VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="Select" Width="64">
+                                    <GridViewColumn Header="Select" Width="50">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
                                                 <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -22710,7 +22773,7 @@ function Set-WmtPowerSettingIndex {
                     </Border>
 
                     <!-- Action Bar -->
-                    <Border Grid.Row="2" Style="{StaticResource CardStyle}" Margin="0,12,0,0">
+                    <Border Grid.Row="2" Style="{StaticResource CardStyle}" Margin="0,12,6,6">
                         <WrapPanel HorizontalAlignment="Right">
                             <Button Name="btnManageProviders" Content="Providers" Style="{StaticResource ActionBtn}" ToolTip="Manage package sources"/>
                             <Button Name="btnShowCatalog" Content="Software Catalog" Style="{StaticResource ActionBtn}" ToolTip="Browse our curated catalog of popular free applications. Install multiple apps at once with one click."/>
@@ -24592,7 +24655,7 @@ $iconDeferTimer.Add_Tick({
         Set-ButtonIcon "btnCleanDisk" "M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" "Disk Cleanup" "Opens the built-in Windows Disk Cleanup utility"
         Set-ButtonIcon "btnCleanTemp" "M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" "Delete Temp Files" "Deletes temporary files from User and System Temp folders"
         Set-ButtonIcon "btnCleanShortcuts" "M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3M19,19H5V5H19V19M10,17L5,12L6.41,10.59L10,14.17L17.59,6.58L19,8L10,17Z" "Fix Shortcuts" "Scans for and fixes broken .lnk shortcuts"
-        Set-ButtonIcon "btnWingetFind" "M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z" "Search" "Search Winget"
+        # (btnWingetFind replaced by unified inline search box)
         Set-ButtonIcon "btnWingetScan" "M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15V18M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z" "Refresh Updates" "Checks enabled providers for available application updates"
         Set-ButtonIcon "btnWingetUpdateSel" "M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z" "Update Checked" "Updates the checked applications; falls back to selected rows if nothing is checked"
         Set-ButtonIcon "btnWingetUpdateAll" "M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z" "Update All" "Updates all listed applications"
@@ -24683,7 +24746,7 @@ $btnWingetUpdateSel = Get-Ctrl "btnWingetUpdateSel"
 $btnWingetUpdateAll = Get-Ctrl "btnWingetUpdateAll"
 $btnWingetInstall = Get-Ctrl "btnWingetInstall"
 $btnWingetUninstall = Get-Ctrl "btnWingetUninstall"
-$btnWingetFind = Get-Ctrl "btnWingetFind"
+$btnWingetClearSearch = Get-Ctrl "btnWingetClearSearch"
 $lstWinget = Get-Ctrl "lstWinget"
 $txtWingetSearch = Get-Ctrl "txtWingetSearch"
 $lblWingetStatus = Get-Ctrl "lblWingetStatus"
@@ -27507,7 +27570,7 @@ $searchIndexDeferTimer.Add_Tick({
         Add-SearchIndexEntry "btnWingetUpdateAll"   "Update All Apps"                 "btnTabUpdates"
         Add-SearchIndexEntry "btnWingetInstall"     "Install Selected Apps"           "btnTabUpdates"
         Add-SearchIndexEntry "btnWingetUninstall"   "Uninstall Selected Apps"         "btnTabUpdates"
-        Add-SearchIndexEntry "btnWingetFind"        "Search Winget Packages"          "btnTabUpdates"
+        Add-SearchIndexEntry "txtWingetSearch"         "Search Winget Packages"          "btnTabUpdates"
 
         # 2. System Health
         Add-SearchIndexEntry "btnQuickFix"           "Quick Fix (SFC + DISM + Cleanup)" "btnTabHealth"
@@ -28117,17 +28180,83 @@ $ctxMenu.Add_Opened({
 # 8. Attach to List
 $lstWinget.ContextMenu = $ctxMenu
 
-# --- WINGET ---
+# --- WINGET UNIFIED SEARCH BOX ---
+# Get reference to the search box border for focus glow effect
+$script:WingetSearchBorder = $txtWingetSearch.Parent  # The Grid inside the Border
+if ($script:WingetSearchBorder -and $script:WingetSearchBorder.Parent -is [System.Windows.Controls.Border]) {
+    $script:WingetSearchBorder = $script:WingetSearchBorder.Parent
+}
+
+# Placeholder text helper
 $txtWingetSearch.Add_GotFocus({
-        if ($txtWingetSearch.Text -in @("Search packages...", "Search new packages...")) { $txtWingetSearch.Text = "" }
+        if ($txtWingetSearch.Text -in @("Search packages...", "Search new packages...")) {
+            $txtWingetSearch.Text = ""
+            $c = [System.Windows.Media.ColorConverter]::ConvertFromString("#E6EDF3"); $txtWingetSearch.Foreground = New-Object System.Windows.Media.SolidColorBrush($c)
+        }
+        # Apply focus glow to the search border
+        if ($script:WingetSearchBorder) {
+            $c = [System.Windows.Media.ColorConverter]::ConvertFromString("#58A6FF"); $script:WingetSearchBorder.BorderBrush = New-Object System.Windows.Media.SolidColorBrush($c)
+            $script:WingetSearchBorder.BorderThickness = [System.Windows.Thickness]::new(2)
+        }
+    })
+$txtWingetSearch.Add_LostFocus({
+        # Restore placeholder if empty
+        if ([string]::IsNullOrWhiteSpace($txtWingetSearch.Text)) {
+            $txtWingetSearch.Text = "Search packages..."
+            $c = [System.Windows.Media.ColorConverter]::ConvertFromString("#6E7681"); $txtWingetSearch.Foreground = New-Object System.Windows.Media.SolidColorBrush($c)
+        }
+        # Remove focus glow
+        if ($script:WingetSearchBorder) {
+            $c = [System.Windows.Media.ColorConverter]::ConvertFromString("#30363D"); $script:WingetSearchBorder.BorderBrush = New-Object System.Windows.Media.SolidColorBrush($c)
+            $script:WingetSearchBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+        }
     })
 $txtWingetSearch.Add_TextChanged({
+        # Toggle clear button visibility
+        $hasRealText = (-not [string]::IsNullOrWhiteSpace($txtWingetSearch.Text)) -and
+                        ($txtWingetSearch.Text -notin @("Search packages...", "Search new packages..."))
+        if ($btnWingetClearSearch) {
+            $btnWingetClearSearch.Visibility = if ($hasRealText) { "Visible" } else { "Collapsed" }
+        }
         # If the user starts typing and the only item is our status message, clear it
         if ($lstWinget.Items.Count -eq 1 -and $lstWinget.Items[0].Name -eq "No updates available") {
             $lstWinget.Items.Clear()
         }
     })
-$txtWingetSearch.Add_KeyDown({ param($s, $e) if ($e.Key -eq "Return") { $btnWingetFind.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) } })
+$txtWingetSearch.Add_KeyDown({ param($s, $e)
+        if ($e.Key -eq "Return") {
+            $e.Handled = $true
+            & $script:InvokeWingetSearch
+        }
+    })
+
+# Clear button click handler - restores previous scan results
+$script:WingetSavedScanItems = $null
+if ($btnWingetClearSearch) {
+    $btnWingetClearSearch.Add_Click({
+        $txtWingetSearch.Text = "Search packages..."
+        $c = [System.Windows.Media.ColorConverter]::ConvertFromString("#6E7681"); $txtWingetSearch.Foreground = New-Object System.Windows.Media.SolidColorBrush($c)
+        $btnWingetClearSearch.Visibility = "Collapsed"
+
+        # Restore previous scan results if available
+        if ($script:WingetSavedScanItems -and $script:WingetSavedScanItems.Count -gt 0) {
+            $lstWinget.Items.Clear()
+            foreach ($item in $script:WingetSavedScanItems) { [void]$lstWinget.Items.Add($item) }
+            $lblWingetTitle.Text = "Package Updates"
+            $lblWingetStatus.Text = "Ready"
+            $lblWingetStatus.Visibility = "Visible"
+            $btnWingetInstall.Visibility = "Collapsed"
+            $btnWingetUpdateSel.Visibility = "Visible"
+            if ($btnWingetUpdateAll) { $btnWingetUpdateAll.Visibility = "Visible" }
+            $script:WmtPackageSearchActive = $false
+            Request-WmtUpdateListSmartColumnResize -ListView $lstWinget
+        }
+        $txtWingetSearch.Focus()
+    })
+}
+
+# Initialize placeholder color
+$c = [System.Windows.Media.ColorConverter]::ConvertFromString("#6E7681"); $txtWingetSearch.Foreground = New-Object System.Windows.Media.SolidColorBrush($c)
 
 # 2. HELPER TO START JOB
 $Script:StartWingetAction = {
@@ -33840,7 +33969,6 @@ function Test-WmtPackageSearchActive {
         if ($script:AsyncSearch) { return $true }
         if ($script:AsyncPowerShell) { return $true }
         if ($script:SearchTimer -and $script:SearchTimer.IsEnabled) { return $true }
-        if ($btnWingetFind -and -not $btnWingetFind.IsEnabled) { return $true }
         if ($txtWingetSearch -and -not $txtWingetSearch.IsEnabled) { return $true }
 
         # Completed search results should only block auto scans while the user can actually see that view.
@@ -36756,7 +36884,6 @@ $script:SearchTimer.Add_Tick({
 
             $lblWingetStatus.Text = "Search timed out"
             $lblWingetStatus.Visibility = "Visible"
-            $btnWingetFind.IsEnabled = $true
             $txtWingetSearch.IsEnabled = $true
             # Don't add a placeholder row � the status label already shows
             # "Search timed out" above the list.
@@ -36796,7 +36923,6 @@ $script:SearchTimer.Add_Tick({
 
             # UI Cleanup
             $lblWingetStatus.Visibility = "Hidden"
-            $btnWingetFind.IsEnabled = $true
             $txtWingetSearch.IsEnabled = $true
             $lblWingetStatus.Text = "Ready"
 
@@ -36817,8 +36943,8 @@ $script:SearchTimer.Add_Tick({
         }
     })
 
-# 2. THE BUTTON CLICK (Starts the Thread)
-$btnWingetFind.Add_Click({
+# 2. THE SEARCH TRIGGER (scriptblock invoked by Enter key)
+$script:InvokeWingetSearch = {
         if (Test-WmtUpdateScanEngineBusy) {
             Write-GuiLog "Package search skipped because an update scan or package action is already running."
             return
@@ -36833,8 +36959,11 @@ $btnWingetFind.Add_Click({
         $btnWingetUpdateSel.Visibility = "Collapsed"
         if ($btnWingetUpdateAll) { $btnWingetUpdateAll.Visibility = "Collapsed" }
         $btnWingetInstall.Visibility = "Visible"
+
+        # Save current scan results so clear button can restore them
+        $script:WingetSavedScanItems = @($lstWinget.Items | ForEach-Object { $_ })
         $lstWinget.Items.Clear()
-        $btnWingetFind.IsEnabled = $false 
+        $txtWingetSearch.IsEnabled = $false 
 
         Write-GuiLog " "
         Write-GuiLog "Starting Search: '$query'"
@@ -37450,7 +37579,7 @@ $btnWingetFind.Add_Click({
         $script:AsyncSearch = $script:AsyncPowerShell.BeginInvoke()
         $script:WmtPackageSearchStartedAt = Get-Date
         $script:SearchTimer.Start()
-    })
+}
 
 function Test-WingetRestartRiskItem {
     param($Item)
