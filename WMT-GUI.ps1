@@ -28227,6 +28227,19 @@ $ctxMenu.Add_Opened({
 # 8. Attach to List
 $lstWinget.ContextMenu = $ctxMenu
 
+# 9. Double-click opens app manifest
+$lstWinget.Add_MouseDoubleClick({
+    param($s, $e)
+    try {
+        $selected = @($s.SelectedItems)
+        if ($selected.Count -ne 1) { return }
+        $hitTest = $s.InputHitTest($e.GetPosition($s))
+        if ($hitTest -is [System.Windows.Controls.CheckBox]) { return }
+        Show-WingetPackageManifest -Item $selected[0]
+    }
+    catch {}
+})
+
 # --- WINGET UNIFIED SEARCH BOX ---
 # Get reference to the search box border for focus glow effect
 $script:WingetSearchBorder = $txtWingetSearch.Parent  # The Grid inside the Border
