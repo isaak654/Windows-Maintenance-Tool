@@ -22274,9 +22274,18 @@ function Set-WmtPowerSettingIndex {
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="GridViewColumnHeader">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True" UseLayoutRounding="True">
-                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left" TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"/>
-                        </Border>
+                        <Grid>
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True" UseLayoutRounding="True">
+                                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left" TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"/>
+                            </Border>
+                            <Thumb x:Name="PART_HeaderGripper" HorizontalAlignment="Right" Margin="0,0,-4,0" Width="8" Cursor="SizeWE" Opacity="0.4">
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType="Thumb">
+                                        <Border Background="Transparent"/>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -22754,7 +22763,7 @@ function Set-WmtPowerSettingIndex {
                                   VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="Select" Width="50">
+                                    <GridViewColumn Header="Select" Width="36">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
                                                 <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
