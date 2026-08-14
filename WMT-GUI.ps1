@@ -28227,7 +28227,7 @@ $ctxMenu.Add_Opened({
 # 8. Attach to List
 $lstWinget.ContextMenu = $ctxMenu
 
-# 9. Double-click opens app manifest
+# 9. Double-click opens store page (Steam/Epic/GOG) or app manifest
 $lstWinget.Add_MouseDoubleClick({
     param($s, $e)
     try {
@@ -28235,7 +28235,15 @@ $lstWinget.Add_MouseDoubleClick({
         if ($selected.Count -ne 1) { return }
         $hitTest = $s.InputHitTest($e.GetPosition($s))
         if ($hitTest -is [System.Windows.Controls.CheckBox]) { return }
-        Show-WingetPackageManifest -Item $selected[0]
+        $item = $selected[0]
+        $source = [string]$item.Source
+        $id = [string]$item.Id
+        $url = $null
+        if ($source -eq "Steam") { $url = "https://store.steampowered.com/app/$id" }
+        elseif ($source -eq "Epic") { $url = "https://www.epicgames.com/store/en-US/p/$id" }
+        elseif ($source -eq "GOG") { $url = "https://www.gog.com/en/game/$id" }
+        if ($url) { Start-Process $url }
+        else { Show-WingetPackageManifest -Item $item }
     }
     catch {}
 })
@@ -32368,6 +32376,24 @@ else {
     $settings | Add-Member -MemberType NoteProperty -Name "WuCategoryToggles" -Value $Toggles -Force
 }
 Save-WmtSettings -Settings $settings
+}
+
+function Update-WmtProviderPathEnvironment {
+    try {
+        $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        $pathParts = New-Object System.Collections.Generic.List[string]
+        foreach ($pathValue in @($machinePath, $userPath, $env:Path)) {
+            foreach ($part in @(([string]$pathValue) -split ";")) {
+                $trimmed = $part.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($trimmed) -and -not $pathParts.Contains($trimmed)) {
+                    [void]$pathParts.Add($trimmed)
+                }
+            }
+        }
+        $env:Path = $pathParts -join ";"
+    }
+    catch {}
 }
 
 function Show-ProviderManager {
