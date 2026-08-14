@@ -22731,6 +22731,7 @@ function Set-WmtPowerSettingIndex {
                                              VerticalContentAlignment="Center" Text="Search packages..."
                                              Background="Transparent" BorderThickness="0"
                                              Padding="0,0,0,0" Margin="0"
+                                             FontSize="14"
                                              Foreground="{DynamicResource TextSecondary}"
                                              CaretBrush="{DynamicResource TextPrimary}"
                                              SelectionBrush="{DynamicResource Accent}"/>
@@ -27891,10 +27892,10 @@ $searchIndexDeferTimer.Add_Tick({
         Add-SearchIndexEntry "btnToggleUsbSuspend" "USB Selective Suspend" "btnTabTweaks"
         Add-SearchIndexEntry "btnToggleLongPaths" "Win32 Long Paths" "btnTabTweaks"
         Add-SearchIndexEntry "btnToggleDevMode" "Developer Mode" "btnTabTweaks"
+        Update-WmtSearchIndexEntries
         $searchIndexDeferTimer = $null
     })
 $searchIndexDeferTimer.Start()
-Update-WmtSearchIndexEntries
 
 if ($txtGlobalSearch) { $txtGlobalSearch.Add_TextChanged({
         $q = $txtGlobalSearch.Text
