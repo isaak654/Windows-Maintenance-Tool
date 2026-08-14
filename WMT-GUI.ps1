@@ -22774,7 +22774,7 @@ function Set-WmtPowerSettingIndex {
 
                     <!-- Action Bar -->
                     <Border Grid.Row="2" Style="{StaticResource CardStyle}" Margin="0,12,6,6">
-                        <WrapPanel HorizontalAlignment="Right">
+                        <WrapPanel HorizontalAlignment="Left">
                             <Button Name="btnManageProviders" Content="Providers" Style="{StaticResource ActionBtn}" ToolTip="Manage package sources"/>
                             <Button Name="btnShowCatalog" Content="Software Catalog" Style="{StaticResource ActionBtn}" ToolTip="Browse our curated catalog of popular free applications. Install multiple apps at once with one click."/>
                             <Button Name="btnWingetScan" Content="Refresh All" Style="{StaticResource AccentBtn}"/>
@@ -28212,21 +28212,44 @@ $txtWingetSearch.Add_LostFocus({
         }
     })
 $txtWingetSearch.Add_TextChanged({
-        # Toggle clear button visibility
-        $hasRealText = (-not [string]::IsNullOrWhiteSpace($txtWingetSearch.Text)) -and
-                        ($txtWingetSearch.Text -notin @("Search packages...", "Search new packages..."))
-        if ($btnWingetClearSearch) {
-            $btnWingetClearSearch.Visibility = if ($hasRealText) { "Visible" } else { "Collapsed" }
-        }
-        # If the user starts typing and the only item is our status message, clear it
-        if ($lstWinget.Items.Count -eq 1 -and $lstWinget.Items[0].Name -eq "No updates available") {
-            $lstWinget.Items.Clear()
-        }
+        try {
+            # Toggle clear button visibility
+            $hasRealText = (-not [string]::IsNullOrWhiteSpace($txtWingetSearch.Text)) -and
+                            ($txtWingetSearch.Text -notin @("Search packages...", "Search new packages..."))
+            if ($btnWingetClearSearch) {
+                $btnWingetClearSearch.Visibility = if ($hasRealText) { "Visible" } else { "Collapsed" }
+            }
+            # If the user starts typing and the only item is our status message, clear it
+            if ($lstWinget -and $lstWinget.Items.Count -eq 1) {
+                try {
+                    $firstName = ""
+                    $firstItem = $lstWinget.Items[0]
+                    if ($firstItem -is [string]) { $firstName = $firstItem }
+                    elseif ($firstItem.PSObject.Properties["Name"]) { $firstName = [string]$firstItem.Name }
+                    if ($firstName -eq "No updates available") { $lstWinget.Items.Clear() }
+                } catch {}
+            }
+        } catch {}
     })
 $txtWingetSearch.Add_KeyDown({ param($s, $e)
         if ($e.Key -eq "Return") {
             $e.Handled = $true
-            & $script:InvokeWingetSearch
+            if (Test-WmtUpdateScanEngineBusy) {
+                Write-GuiLog "Search blocked: an update scan or action is still running."
+                return
+            }
+            if ($script:WmtPackageSearchActive) {
+                Write-GuiLog "Search blocked: a search is already in progress."
+                return
+            }
+            try {
+                & $script:InvokeWingetSearch
+            } catch {
+                Write-GuiLog "Search error: $($_.Exception.Message)"
+                # Ensure search state is recovered on any unhandled error
+                $script:WmtPackageSearchActive = $false
+                try { $txtWingetSearch.IsEnabled = $true; $txtWingetSearch.ToolTip = "" } catch {}
+            }
         }
     })
 
@@ -28268,6 +28291,8 @@ $Script:StartWingetAction = {
 
     # UI Updates
     $btnWingetScan.IsEnabled = $false
+    $txtWingetSearch.IsEnabled = $false
+    $txtWingetSearch.ToolTip = "Wait for the current action to finish."
     $btnWingetUpdateSel.IsEnabled = $false
     if ($btnWingetUpdateAll) { $btnWingetUpdateAll.IsEnabled = $false }
     if ($btnWingetInstall) { $btnWingetInstall.IsEnabled = $false }
@@ -31379,6 +31404,8 @@ exit /b %WMT_EXIT%
                     & $script:RefreshWingetProgressUi
 
                     $btnWingetScan.IsEnabled = $true
+                    $txtWingetSearch.IsEnabled = $true
+                    $txtWingetSearch.ToolTip = ""
                     $btnWingetUpdateSel.IsEnabled = $true
                     if ($btnWingetUpdateAll) { $btnWingetUpdateAll.IsEnabled = $true }
                     if ($btnWingetInstall) { $btnWingetInstall.IsEnabled = $true }
@@ -34277,6 +34304,9 @@ function Start-WingetScanSourcePreflight {
     $script:WingetSourcePreflightReadyForScan = $false
     $script:WingetSourcePreflightSources = @($Sources | Select-Object -Unique)
 
+    $txtWingetSearch.IsEnabled = $false
+    $txtWingetSearch.ToolTip = "Wait for the scan to finish before searching."
+
     Write-GuiLog "Preparing winget sources before package scan: $($script:WingetSourcePreflightSources -join ', ')"
     if ($lblWingetStatus) {
         $lblWingetStatus.Text = "Preparing winget sources before scan..."
@@ -34465,6 +34495,8 @@ $script:ScanTimer.Add_Tick({
                 if ($pbWingetProgress) { $pbWingetProgress.Visibility = "Collapsed"; $pbWingetProgress.Value = 0 }
                 if ($lblWingetProgress) { $lblWingetProgress.Visibility = "Collapsed"; $lblWingetProgress.Text = "" }
                 $btnWingetScan.IsEnabled = $true
+                $txtWingetSearch.IsEnabled = $true
+                $txtWingetSearch.ToolTip = ""
                 if ($btnWingetUpdateAll) { $btnWingetUpdateAll.IsEnabled = $true }
                 $btnWingetUpdateSel.IsEnabled = $true
                 $lstWinget.Items.Refresh()
@@ -34512,6 +34544,14 @@ $btnWingetScan.Add_Click({
 
         $lstWinget.Items.Clear()
         $btnWingetScan.IsEnabled = $false
+        $txtWingetSearch.IsEnabled = $false
+        $txtWingetSearch.ToolTip = "Wait for the scan to finish before searching."
+        if ($script:WingetSearchBorder) {
+            try {
+                $c = [System.Windows.Media.ColorConverter]::ConvertFromString("#30363D"); $script:WingetSearchBorder.BorderBrush = New-Object System.Windows.Media.SolidColorBrush($c)
+                $script:WingetSearchBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+            } catch {}
+        }
         if ($btnWingetUpdateAll) { $btnWingetUpdateAll.IsEnabled = $false }
         $btnWingetUpdateSel.IsEnabled = $false
         $btnWingetInstall.Visibility = "Collapsed"
@@ -34607,6 +34647,8 @@ $btnWingetScan.Add_Click({
                     $lblWingetStatus.Text = "Scan timeout - some providers did not respond."
                     $lblWingetStatus.Visibility = "Visible"
                     $btnWingetScan.IsEnabled = $true
+                    $txtWingetSearch.IsEnabled = $true
+                    $txtWingetSearch.ToolTip = ""
                     if ($btnWingetUpdateAll) { $btnWingetUpdateAll.IsEnabled = $true }
                     $btnWingetUpdateSel.IsEnabled = $true
                     [System.Windows.MessageBox]::Show(
@@ -36864,82 +36906,145 @@ if ($lstLibrary) {
 # HIGH-PERFORMANCE THREADED SEARCH
 # ---------------------------------------------------------
 
-# 1. SETUP UI TIMER (Handles the Thread Callback)
+# 1. SETUP UI TIMER (Streaming - processes results as providers complete)
 $script:SearchTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:SearchTimer.Interval = [TimeSpan]::FromMilliseconds(100)
+$script:SearchTimer.Interval = [TimeSpan]::FromMilliseconds(150)
 $script:AsyncSearch = $null
 $script:AsyncPowerShell = $null
+$script:SearchOutput = $null
 $script:WmtPackageSearchActive = $false
 $script:WmtPackageSearchStartedAt = $null
 $script:WmtPackageSearchTimeoutSeconds = 300
+$script:SearchProcessedCount = 0
+$script:SearchProvidersDone = @{}
+$script:SearchProvidersTotal = 0
+$script:SearchProvidersExpected = 0
 
 $script:SearchTimer.Add_Tick({
+        # Timeout check
         if ($script:AsyncSearch -and
             -not $script:AsyncSearch.IsCompleted -and
             $script:WmtPackageSearchStartedAt -and
             ((Get-Date) - $script:WmtPackageSearchStartedAt).TotalSeconds -ge $script:WmtPackageSearchTimeoutSeconds) {
             $script:SearchTimer.Stop()
-            Write-GuiLog "Package search timed out after $($script:WmtPackageSearchTimeoutSeconds) seconds and was cancelled."
+            Write-GuiLog "Package search timed out after $($script:WmtPackageSearchTimeoutSeconds) seconds."
             try { $null = $script:AsyncPowerShell.BeginStop($null, $null) } catch {}
-
             $lblWingetStatus.Text = "Search timed out"
             $lblWingetStatus.Visibility = "Visible"
             $txtWingetSearch.IsEnabled = $true
-            # Don't add a placeholder row � the status label already shows
-            # "Search timed out" above the list.
-            if ($lstWinget.Items.Count -gt 0) {
-                Request-WmtUpdateListSmartColumnResize -ListView $lstWinget
-            }
-
+            $txtWingetSearch.ToolTip = ""
+            if ($lstWinget.Items.Count -gt 0) { Request-WmtUpdateListSmartColumnResize -ListView $lstWinget }
             $script:AsyncSearch = $null
             $script:AsyncPowerShell = $null
+            $script:SearchOutput = $null
             $script:WmtPackageSearchStartedAt = $null
+            $script:WmtPackageSearchQuery = $null
+            $script:WmtPackageSearchActive = $false
             return
         }
 
-        # Check if the thread has finished
-        if ($script:AsyncSearch -and $script:AsyncSearch.IsCompleted) {
-            $script:SearchTimer.Stop()
-
-            try {
-                # Get Results from the Thread
-                $results = $script:AsyncPowerShell.EndInvoke($script:AsyncSearch)
-                $script:AsyncPowerShell.Dispose()
-
-                foreach ($item in $results) {
-                    # Handle Log Messages vs Result Objects
-                    if ($item -is [string] -and $item.StartsWith("LOG:")) {
+        # Stream new items from the output collection
+        if ($script:SearchOutput -and $script:SearchOutput.Count -gt $script:SearchProcessedCount) {
+            for ($i = $script:SearchProcessedCount; $i -lt $script:SearchOutput.Count; $i++) {
+                $item = $script:SearchOutput[$i]
+                if ($item -is [string]) {
+                    if ($item.StartsWith("LOG:")) {
                         Write-GuiLog ($item.Substring(4))
                     }
-                    elseif ($item.PSObject.Properties["Name"]) {
+                    elseif ($item.StartsWith("PROVIDER_START:")) {
+                        $prov = $item.Substring(15)
+                        $script:SearchProvidersExpected++
+                        $doneNames = @($script:SearchProvidersDone.Keys)
+                        $doneStr = if ($doneNames.Count -gt 0) { ($doneNames -join ", ") + ", " } else { "" }
+                        $lblWingetStatus.Text = "Searching all providers... ($doneStr$prov...)"
+                        $lblWingetStatus.Visibility = "Visible"
+                    }
+                    elseif ($item.StartsWith("PROVIDER_DONE:")) {
+                        $parts = $item.Substring(14) -split ":", 2
+                        $prov = $parts[0]
+                        $count = if ($parts.Count -gt 1) { $parts[1] } else { "0" }
+                        $script:SearchProvidersDone[$prov] = [int]$count
+                        $script:SearchProvidersTotal += [int]$count
+                        $doneNames = @($script:SearchProvidersDone.Keys) | ForEach-Object { "$_ ($($script:SearchProvidersDone[$_]))" }
+                        $remaining = $script:SearchProvidersExpected - $script:SearchProvidersDone.Count
+                        if ($remaining -gt 0) {
+                            $lblWingetStatus.Text = "Searching all providers... [$($doneNames -join ", ")] ($remaining remaining)"
+                        } else {
+                            $lblWingetStatus.Text = "Done. Found $script:SearchProvidersTotal results."
+                        }
+                        $lblWingetStatus.Visibility = "Visible"
+                    }
+                }
+                elseif ($item.PSObject.Properties["Name"]) {
+                    # Relevance filter: only add if Name contains the search query
+                    $itemName = [string]$item.Name
+                    $needle = $script:WmtPackageSearchQuery
+                    if (-not $needle -or $itemName.ToLowerInvariant().Contains($needle)) {
                         [void](Set-WmtUpdateListItemCheckState -Item $item -DefaultChecked:$false)
                         [void]$lstWinget.Items.Add($item)
                     }
                 }
             }
-            catch {
-                Write-GuiLog "Thread Error: $($_.Exception.Message)"
+            $script:SearchProcessedCount = $script:SearchOutput.Count
+        }
+
+        # Check if the thread has finished
+        if ($script:AsyncSearch -and $script:AsyncSearch.IsCompleted) {
+            $script:SearchTimer.Stop()
+            # Process any remaining items
+            if ($script:SearchOutput -and $script:SearchOutput.Count -gt $script:SearchProcessedCount) {
+                for ($i = $script:SearchProcessedCount; $i -lt $script:SearchOutput.Count; $i++) {
+                    $item = $script:SearchOutput[$i]
+                    if ($item -is [string] -and $item.StartsWith("LOG:")) {
+                        Write-GuiLog ($item.Substring(4))
+                    }
+                    elseif ($item -is [string] -and $item.StartsWith("PROVIDER_DONE:")) {
+                        # final provider done messages still processed here
+                        $parts = $item.Substring(14) -split ":", 2
+                        $prov = $parts[0]
+                        $count = if ($parts.Count -gt 1) { $parts[1] } else { "0" }
+                        $script:SearchProvidersDone[$prov] = [int]$count
+                        $script:SearchProvidersTotal += [int]$count
+                    }
+                    elseif ($item.PSObject.Properties["Name"]) {
+                        # Relevance filter (same as streaming path)
+                        $itemName = [string]$item.Name
+                        $needle = $script:WmtPackageSearchQuery
+                        if (-not $needle -or $itemName.ToLowerInvariant().Contains($needle)) {
+                            [void](Set-WmtUpdateListItemCheckState -Item $item -DefaultChecked:$false)
+                            [void]$lstWinget.Items.Add($item)
+                        }
+                    }
+                }
             }
-
-            # UI Cleanup
-            $lblWingetStatus.Visibility = "Hidden"
+            # Check for background errors
+            try {
+                $streamErrors = $script:AsyncPowerShell.Streams.Error.ReadAll()
+                if ($streamErrors -and $streamErrors.Count -gt 0) {
+                    foreach ($err in $streamErrors) {
+                        Write-GuiLog "Search thread error: $err"
+                    }
+                }
+            } catch {}
+            try { $script:AsyncPowerShell.Dispose() } catch {}
             $txtWingetSearch.IsEnabled = $true
-            $lblWingetStatus.Text = "Ready"
-
+            $txtWingetSearch.ToolTip = ""
             if ($lstWinget.Items.Count -eq 0) {
                 $lblWingetStatus.Text = "No results found"
                 $lblWingetStatus.Visibility = "Visible"
                 Write-GuiLog "Search Complete. No results found."
             }
             else {
+                $lblWingetStatus.Visibility = "Hidden"
                 Request-WmtUpdateListSmartColumnResize -ListView $lstWinget
                 Write-GuiLog "Search Complete. Found $($lstWinget.Items.Count) results."
             }
-            $script:WmtPackageSearchActive = $true
-
             $script:AsyncSearch = $null
             $script:AsyncPowerShell = $null
+            $script:SearchOutput = $null
             $script:WmtPackageSearchStartedAt = $null
+            $script:WmtPackageSearchQuery = $null
+            $script:WmtPackageSearchActive = $false
         }
     })
 
@@ -36951,11 +37056,23 @@ $script:InvokeWingetSearch = {
         }
         if ([string]::IsNullOrWhiteSpace($txtWingetSearch.Text) -or $txtWingetSearch.Text -in @("Search packages...", "Search new packages...")) { return }
 
+        # --- Cleanup any leftover/abandoned search state ---
+        if ($script:AsyncSearch) {
+            try { $null = $script:AsyncPowerShell.BeginStop($null, $null) } catch {}
+            try { $script:AsyncPowerShell.Dispose() } catch {}
+            $script:AsyncSearch = $null
+            $script:AsyncPowerShell = $null
+        }
+        if ($script:SearchTimer -and $script:SearchTimer.IsEnabled) { try { $script:SearchTimer.Stop() } catch {} }
+        $script:SearchOutput = $null
+
+        try {
         # UI Prep
         $script:WmtPackageSearchActive = $true
         $query = $txtWingetSearch.Text
+        $script:WmtPackageSearchQuery = $query.ToLowerInvariant()
         $lblWingetTitle.Text = "Search Results: $query"
-        $lblWingetStatus.Text = "Searching..."; $lblWingetStatus.Visibility = "Visible"
+        $lblWingetStatus.Text = "Searching all providers..."; $lblWingetStatus.Visibility = "Visible"
         $btnWingetUpdateSel.Visibility = "Collapsed"
         if ($btnWingetUpdateAll) { $btnWingetUpdateAll.Visibility = "Collapsed" }
         $btnWingetInstall.Visibility = "Visible"
@@ -37003,6 +37120,14 @@ $script:InvokeWingetSearch = {
         $enabled = $searchEnabled
 
         Write-GuiLog "Search-enabled providers: $($enabled -join ', ')"
+        if ($enabled.Count -eq 0) {
+            Write-GuiLog "No providers have search enabled. Check Provider settings."
+            $lblWingetStatus.Text = "No search-enabled providers"
+            $lblWingetStatus.Visibility = "Visible"
+            $txtWingetSearch.IsEnabled = $true
+            $script:WmtPackageSearchActive = $false
+            return
+        }
 
         # Resolve library cache file paths for the runspace (Get-DataPath is
         # not available inside the runspace).
@@ -37180,8 +37305,6 @@ $script:InvokeWingetSearch = {
             try { [void]$cachePs.BeginInvoke() } catch { try { $cachePs.Dispose() } catch {} }
         }
 
-        # Reset Task List
-        $script:ActiveScans.Clear()
         # 3. DEFINE THE WORKER THREAD SCRIPT
         # This contains the EXACT logic that worked for you before.
         $scriptBlock = {
@@ -37240,6 +37363,8 @@ $script:InvokeWingetSearch = {
 
             # --- A. WINGET & MSSTORE ---
             if ("winget" -in $Enabled -or "msstore" -in $Enabled) {
+                Write-Output "PROVIDER_START:winget"
+                $script:provCount = 0
                 Log "Searching Winget & Store..."
 
                 $sourceFlag = ""
@@ -37312,6 +37437,7 @@ $script:InvokeWingetSearch = {
 
                                 # Available is hardcoded to "-" since searches don't show updates
                                 [PSCustomObject]@{ Source = $s; Name = $n; Id = $i; Version = $v; Available = "-" }
+                            $script:provCount++
                             }
                         }
                     }
@@ -37321,6 +37447,9 @@ $script:InvokeWingetSearch = {
 
             # --- B. NPM ---
             if ("npm" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:winget:$script:provCount"
+                Write-Output "PROVIDER_START:npm"
+                $script:provCount = 0
                 Log "Searching NPM..."
                 try {
                     $result = Invoke-WmtPackageSearchProcess -FileName "cmd" -Arguments "/c npm search `"$Query`" --json"
@@ -37329,6 +37458,7 @@ $script:InvokeWingetSearch = {
                         $json = $json.Substring($json.IndexOf("[")); $pkgs = $json | ConvertFrom-Json
                         foreach ($pkg in $pkgs) { 
                             [PSCustomObject]@{ Source = "npm"; Name = $pkg.name; Id = $pkg.name; Version = $pkg.version; Available = "-" } 
+                            $script:provCount++
                         }
                     }
                 }
@@ -37337,6 +37467,9 @@ $script:InvokeWingetSearch = {
 
             # --- C. CHOCO ---
             if ("chocolatey" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:npm:$script:provCount"
+                Write-Output "PROVIDER_START:chocolatey"
+                $script:provCount = 0
                 Log "Searching Chocolatey..."
                 try {
                     $result = Invoke-WmtPackageSearchProcess -FileName "choco" -Arguments "search `"$Query`" -r"
@@ -37347,6 +37480,7 @@ $script:InvokeWingetSearch = {
                         $parts = $line -split "\|"
                         if ($parts.Count -ge 2) {
                             [PSCustomObject]@{ Source = "chocolatey"; Name = $parts[0]; Id = $parts[0]; Version = $parts[1]; Available = "-" }
+                            $script:provCount++
                         }
                     }
                 }
@@ -37355,6 +37489,9 @@ $script:InvokeWingetSearch = {
 
             # --- D. .NET TOOLS ---
             if ("dotnet" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:chocolatey:$script:provCount"
+                Write-Output "PROVIDER_START:dotnet"
+                $script:provCount = 0
                 Log "Searching .NET tools..."
                 try {
                     $result = Invoke-WmtPackageSearchProcess -FileName "dotnet" -Arguments "tool search `"$Query`" --take 40"
@@ -37366,6 +37503,7 @@ $script:InvokeWingetSearch = {
                         $parts = @($trimmed -split "\s+" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
                         if ($parts.Count -ge 2) {
                             [PSCustomObject]@{ Source = "dotnet"; Name = [string]$parts[0]; Id = [string]$parts[0]; Version = [string]$parts[1]; Available = "-" }
+                            $script:provCount++
                         }
                     }
                 }
@@ -37374,12 +37512,16 @@ $script:InvokeWingetSearch = {
 
             # --- E. POWERSHELL MODULES ---
             if ("psmodule" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:dotnet:$script:provCount"
+                Write-Output "PROVIDER_START:psmodule"
+                $script:provCount = 0
                 Log "Searching PowerShell modules..."
                 try {
                     if (Get-Command Find-Module -ErrorAction SilentlyContinue) {
                         $mods = @(Find-Module -Name "*$Query*" -Repository PSGallery -ErrorAction SilentlyContinue | Select-Object -First 40)
                         foreach ($mod in $mods) {
                             [PSCustomObject]@{ Source = "psmodule"; Name = $mod.Name; Id = $mod.Name; Version = [string]$mod.Version; Available = "-" }
+                            $script:provCount++
                         }
                     }
                 }
@@ -37388,6 +37530,9 @@ $script:InvokeWingetSearch = {
 
             # --- F. COMPOSER ---
             if ("composer" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:psmodule:$script:provCount"
+                Write-Output "PROVIDER_START:composer"
+                $script:provCount = 0
                 Log "Searching Composer..."
                 try {
                     $result = Invoke-WmtPackageSearchProcess -FileName "cmd" -Arguments "/c composer search `"$Query`" --format=json 2>nul"
@@ -37399,6 +37544,7 @@ $script:InvokeWingetSearch = {
                             $name = if ($pkg.PSObject.Properties["name"]) { [string]$pkg.name } else { "" }
                             if (-not [string]::IsNullOrWhiteSpace($name)) {
                                 [PSCustomObject]@{ Source = "composer"; Name = $name; Id = $name; Version = "?"; Available = "-" }
+                            $script:provCount++
                             }
                         }
                     }
@@ -37409,6 +37555,7 @@ $script:InvokeWingetSearch = {
                             $name = @($trimmed -split "\s+" | Where-Object { $_ })[0]
                             if (-not [string]::IsNullOrWhiteSpace($name)) {
                                 [PSCustomObject]@{ Source = "composer"; Name = $name; Id = $name; Version = "?"; Available = "-" }
+                            $script:provCount++
                             }
                         }
                     }
@@ -37418,6 +37565,9 @@ $script:InvokeWingetSearch = {
 
             # --- M. PIP (PyPI via cached simple index) ---
             if ("pip" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:composer:$script:provCount"
+                Write-Output "PROVIDER_START:pip"
+                $script:provCount = 0
                 Log "Searching PyPI (cached index)..."
                 try {
                     if ($PypiIndexFile -and (Test-Path -LiteralPath $PypiIndexFile -PathType Leaf)) {
@@ -37431,6 +37581,7 @@ $script:InvokeWingetSearch = {
                                 if ([string]::IsNullOrWhiteSpace($name)) { continue }
                                 if ($name.ToLowerInvariant().Contains($needle)) {
                                     [PSCustomObject]@{ Source = "pip"; Name = $name; Id = $name; Version = "-"; Available = "-" }
+                            $script:provCount++
                                     $count++
                                     if ($count -ge 100) { break }
                                 }
@@ -37446,6 +37597,9 @@ $script:InvokeWingetSearch = {
 
             # --- G. SCOOP ---
             if ("scoop" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:pip:$script:provCount"
+                Write-Output "PROVIDER_START:scoop"
+                $script:provCount = 0
                 Log "Searching Scoop..."
                 try {
                     $result = Invoke-WmtPackageSearchProcess -FileName "powershell.exe" -Arguments "-NoProfile -Command scoop search `"$Query`"" -TimeoutSeconds 30
@@ -37460,6 +37614,7 @@ $script:InvokeWingetSearch = {
                         $parts = @($trimmed -split '\s{2,}|     ' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
                         if ($parts.Count -ge 2) {
                             [PSCustomObject]@{ Source = "scoop"; Name = [string]$parts[0]; Id = [string]$parts[0]; Version = [string]$parts[1]; Available = "-" }
+                            $script:provCount++
                         }
                     }
                 }
@@ -37468,6 +37623,9 @@ $script:InvokeWingetSearch = {
 
             # --- H. CARGO ---
             if ("cargo" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:scoop:$script:provCount"
+                Write-Output "PROVIDER_START:cargo"
+                $script:provCount = 0
                 Log "Searching Cargo crates..."
                 try {
                     $result = Invoke-WmtPackageSearchProcess -FileName "cargo" -Arguments "search `"$Query`"" -TimeoutSeconds 30
@@ -37476,6 +37634,7 @@ $script:InvokeWingetSearch = {
                         $trimmed = ([string]$line).Trim()
                         if ($trimmed -match '^(?<name>\S+)\s*=\s*"(?<version>[^"]*)"') {
                             [PSCustomObject]@{ Source = "cargo"; Name = $matches["name"]; Id = $matches["name"]; Version = $matches["version"]; Available = "-" }
+                            $script:provCount++
                         }
                     }
                 }
@@ -37484,6 +37643,9 @@ $script:InvokeWingetSearch = {
 
             # --- I. RUBYGEMS ---
             if ("gem" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:cargo:$script:provCount"
+                Write-Output "PROVIDER_START:gem"
+                $script:provCount = 0
                 Log "Searching RubyGems..."
                 try {
                     $result = Invoke-WmtPackageSearchProcess -FileName "gem" -Arguments "search `"$Query`" --remote" -TimeoutSeconds 30
@@ -37492,6 +37654,7 @@ $script:InvokeWingetSearch = {
                         $trimmed = ([string]$line).Trim()
                         if ($trimmed -match '^(?<name>\S+)\s+\((?<version>[^)]+)\)') {
                             [PSCustomObject]@{ Source = "gem"; Name = $matches["name"]; Id = $matches["name"]; Version = $matches["version"]; Available = "-" }
+                            $script:provCount++
                         }
                     }
                 }
@@ -37500,6 +37663,9 @@ $script:InvokeWingetSearch = {
 
             # --- J. STEAM STORE ---
             if ("steam" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:gem:$script:provCount"
+                Write-Output "PROVIDER_START:steam"
+                $script:provCount = 0
                 Log "Searching Steam Store..."
                 try {
                     try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
@@ -37509,6 +37675,7 @@ $script:InvokeWingetSearch = {
                     if ($resp -and $resp.total -gt 0) {
                         foreach ($item in @($resp.items)) {
                             [PSCustomObject]@{ Source = "steam"; Name = [string]$item.name; Id = [string]$item.id; Version = "-"; Available = "-" }
+                            $script:provCount++
                         }
                     }
                 }
@@ -37517,6 +37684,9 @@ $script:InvokeWingetSearch = {
 
             # --- K. LEGENDARY (Epic Games library) ---
             if ("legendary" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:steam:$script:provCount"
+                Write-Output "PROVIDER_START:legendary"
+                $script:provCount = 0
                 Log "Searching Legendary library..."
                 try {
                     if ($LegendaryCacheFile -and (Test-Path -LiteralPath $LegendaryCacheFile -PathType Leaf)) {
@@ -37537,6 +37707,7 @@ $script:InvokeWingetSearch = {
                                     $verCol = if ($isInst -and -not [string]::IsNullOrWhiteSpace($instVer)) { $instVer } else { "-" }
                                     $availCol = if (-not [string]::IsNullOrWhiteSpace($latestVer)) { $latestVer } else { "-" }
                                     [PSCustomObject]@{ Source = "legendary"; Name = $title; Id = [string]$game.Id; Version = $verCol; Available = $availCol }
+                            $script:provCount++
                                 }
                             }
                         }
@@ -37550,6 +37721,9 @@ $script:InvokeWingetSearch = {
 
             # --- L. GOGDL (GOG library) ---
             if ("gogdl" -in $Enabled) {
+                Write-Output "PROVIDER_DONE:legendary:$script:provCount"
+                Write-Output "PROVIDER_START:gogdl"
+                $script:provCount = 0
                 Log "Searching GOG library..."
                 try {
                     if ($GogCacheFile -and (Test-Path -LiteralPath $GogCacheFile -PathType Leaf)) {
@@ -37562,6 +37736,7 @@ $script:InvokeWingetSearch = {
                                 if ([string]::IsNullOrWhiteSpace($title)) { continue }
                                 if ([string]::IsNullOrWhiteSpace($needle) -or $title.ToLowerInvariant().Contains($needle)) {
                                     [PSCustomObject]@{ Source = "gogdl"; Name = $title; Id = [string]$game.Id; Version = [string]$game.Version; Available = "-" }
+                            $script:provCount++
                                 }
                             }
                         }
@@ -37572,14 +37747,70 @@ $script:InvokeWingetSearch = {
                 }
                 catch { Log "GOG library skipped: $($_.Exception.Message)" }
             }
+            Write-Output "PROVIDER_DONE:gogdl:$script:provCount"
         }
 
-        # 4. EXECUTE THREAD (The Magic Part)
-        $script:AsyncPowerShell = (New-WmtPooledPowerShell).AddScript($scriptBlock).AddArgument($query).AddArgument($enabled).AddArgument($legendaryCacheFile).AddArgument($gogCacheFile).AddArgument($pypiIndexFile)
-        $script:AsyncSearch = $script:AsyncPowerShell.BeginInvoke()
-        $script:WmtPackageSearchStartedAt = Get-Date
-        $script:SearchTimer.Start()
-}
+        # 4. EXECUTE THREAD (Streaming via PSDataCollection)
+        $script:SearchOutput = New-Object System.Management.Automation.PSDataCollection[PSObject]
+        $script:SearchProcessedCount = 0
+        $script:SearchProvidersDone = @{}
+        $script:SearchProvidersTotal = 0
+        $script:SearchProvidersExpected = 0
+
+        try {
+            $script:AsyncPowerShell = New-WmtPooledPowerShell
+            if ($null -eq $script:AsyncPowerShell) {
+                throw "Failed to create PowerShell instance for search."
+            }
+            [void]$script:AsyncPowerShell.AddScript($scriptBlock)
+            [void]$script:AsyncPowerShell.AddArgument($query)
+            [void]$script:AsyncPowerShell.AddArgument($enabled)
+            [void]$script:AsyncPowerShell.AddArgument($legendaryCacheFile)
+            [void]$script:AsyncPowerShell.AddArgument($gogCacheFile)
+            [void]$script:AsyncPowerShell.AddArgument($pypiIndexFile)
+
+            # BeginInvoke overload differs between pool-bound and standalone PowerShell:
+            #   standalone:  BeginInvoke(AsyncCallback, PSDataCollection output)
+            #   pool-bound:  BeginInvoke(PSDataCollection input,  PSDataCollection output)
+            if ($script:AsyncPowerShell.RunspacePool) {
+                $emptyInput = New-Object System.Management.Automation.PSDataCollection[PSObject]
+                $script:AsyncSearch = $script:AsyncPowerShell.BeginInvoke($emptyInput, $script:SearchOutput)
+            }
+            else {
+                $script:AsyncSearch = $script:AsyncPowerShell.BeginInvoke($null, $script:SearchOutput)
+            }
+            $script:WmtPackageSearchStartedAt = Get-Date
+            $script:SearchTimer.Start()
+            Write-GuiLog "Search thread started with $($enabled.Count) provider(s): $($enabled -join ', ')"
+        }
+        catch {
+            $errMsg = $_.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($errMsg)) { $errMsg = [string]$_ }
+            Write-GuiLog "Search launch failed: $errMsg"
+            $txtWingetSearch.IsEnabled = $true
+            $txtWingetSearch.ToolTip = ""
+            $lblWingetStatus.Text = "Search failed to start: $errMsg"
+            $lblWingetStatus.Visibility = "Visible"
+            $script:WmtPackageSearchActive = $false
+            try { if ($script:AsyncPowerShell) { $script:AsyncPowerShell.Dispose() } } catch {}
+            $script:AsyncPowerShell = $null
+            $script:AsyncSearch = $null
+            $script:SearchOutput = $null
+            $script:WmtPackageSearchStartedAt = $null
+            $script:WmtPackageSearchQuery = $null
+        }
+        }   # close outer try body
+        catch {
+            $errMsg = $_.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($errMsg)) { $errMsg = [string]$_ }
+            Write-GuiLog "Search error: $errMsg"
+            try { $txtWingetSearch.IsEnabled = $true; $txtWingetSearch.ToolTip = "" } catch {}
+            $lblWingetStatus.Text = "Search error: $errMsg"
+            $lblWingetStatus.Visibility = "Visible"
+            $script:WmtPackageSearchActive = $false
+            $script:WmtPackageSearchQuery = $null
+        }
+    }
 
 function Test-WingetRestartRiskItem {
     param($Item)
