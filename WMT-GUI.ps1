@@ -28238,10 +28238,11 @@ $lstWinget.Add_MouseDoubleClick({
         $item = $selected[0]
         $source = [string]$item.Source
         $id = [string]$item.Id
+        $name = [string]$item.Name
         $url = $null
-        if ($source -eq "Steam") { $url = "https://store.steampowered.com/app/$id" }
-        elseif ($source -eq "Epic") { $url = "https://www.epicgames.com/store/en-US/p/$id" }
-        elseif ($source -eq "GOG") { $url = "https://www.gog.com/en/game/$id" }
+        if ($source -eq "Steam" -or $source -eq "steam") { $url = "https://store.steampowered.com/app/$id" }
+        elseif ($source -eq "legendary" -or $source -eq "Epic") { $url = "https://store.epicgames.com/p/$($id.ToLowerInvariant())" }
+        elseif ($source -eq "gogdl" -or $source -eq "GOG") { $url = "https://www.gog.com/en/game/$name" }
         if ($url) { Start-Process $url }
         else { Show-WingetPackageManifest -Item $item }
     }
@@ -33844,7 +33845,7 @@ $updateProviderToggleState = {
     }
 }.GetNewClosure()
 
-# Apply initial toggle state    }.GetNewClosure()
+# Apply initial toggle state
 
 # Apply initial toggle state for every provider.
 foreach ($provider in $providerDefinitions) {
@@ -40955,10 +40956,11 @@ if ($ctxLibrary -and $lstLibrary) {
                 if (-not $item) { return }
                 $source = [string]$item.Source
                 $id = [string]$item.Id
+                $name = [string]$item.Name
                 $url = $null
-                if ($source -eq "Steam") { $url = "https://store.steampowered.com/app/$id" }
-                elseif ($source -eq "Epic") { $url = "https://www.epicgames.com/store/en-US/p/$id" }
-                elseif ($source -eq "GOG") { $url = "https://www.gog.com/en/game/$id" }
+                if ($source -eq "steam" -or $source -eq "Steam") { $url = "https://store.steampowered.com/app/$id" }
+                elseif ($source -eq "legendary") { $url = "https://store.epicgames.com/p/$($id.ToLowerInvariant())" }
+                elseif ($source -eq "gogdl") { $url = "https://www.gog.com/en/game/$name" }
                 if ($url) { Start-Process $url }
             }.GetNewClosure())
     }
