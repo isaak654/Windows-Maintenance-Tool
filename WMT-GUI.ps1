@@ -26179,6 +26179,7 @@ $miLibUninstall = Get-Ctrl "miLibUninstall"
 $miLibGoToDir = Get-Ctrl "miLibGoToDir"
 $miLibStorePage = Get-Ctrl "miLibStorePage"
 $miLibCopyId = Get-Ctrl "miLibCopyId"
+if ($lstLibrary -and $ctxLibrary) { $lstLibrary.ContextMenu = $ctxLibrary }
 $btnBackToCatalog = Get-Ctrl "btnBackToCatalog"
 $btnLibraryRefresh = Get-Ctrl "btnLibraryRefresh"
 $lblLibraryStatus = Get-Ctrl "lblLibraryStatus"
@@ -40954,13 +40955,27 @@ if ($ctxLibrary -and $lstLibrary) {
         $miLibStorePage.Add_Click({
                 $item = Get-WmtSelectedLibraryItem
                 if (-not $item) { return }
+                
                 $source = [string]$item.Source
                 $id = [string]$item.Id
-                $name = [string]$item.Name
+                $name = if ($item.PSObject.Properties["Name"]) { [string]$item.Name } elseif ($item.PSObject.Properties["Title"]) { [string]$item.Title } else { "" }
                 $url = $null
-                if ($source -eq "steam" -or $source -eq "Steam") { $url = "https://store.steampowered.com/app/$id" }
-                elseif ($source -eq "legendary") { $url = "https://store.epicgames.com/p/$($id.ToLowerInvariant())" }
-                elseif ($source -eq "gogdl") { $url = "https://www.gog.com/en/game/$name" }
+                
+                # Safely encode the name for URLs
+                $encodedName = [uri]::EscapeDataString($name)
+    
+                # Use -match to catch UI display names like "Epic", "Epic Games", or "GOG"
+                if ($source -match "(?i)steam") { 
+                    $url = "https://store.steampowered.com/app/$id" 
+                }
+                elseif ($source -match "(?i)legendary|epic") { 
+                    $url = "https://store.epicgames.com/en-US/browse?q=$encodedName" 
+                }
+                elseif ($source -match "(?i)gogdl|gog") { 
+                    $gogSlug = ($name.ToLowerInvariant() -replace '[^a-z0-9\s]', '') -replace '\s+', '_'
+                    $url = "https://www.gog.com/en/game/$gogSlug"
+                }
+                
                 if ($url) { Start-Process $url }
             }.GetNewClosure())
     }
