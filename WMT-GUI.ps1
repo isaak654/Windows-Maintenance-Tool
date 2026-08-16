@@ -22863,14 +22863,32 @@ powercfg /S SCHEME_CURRENT | Out-Null
                 <!-- Library List (initially hidden) -->
                 <Border Name="brdLibraryList" Grid.Row="2" Style="{StaticResource CardStyle}" Padding="0" Visibility="Collapsed">
                     <DockPanel>
-                        <Border DockPanel.Dock="Top" Padding="8,6" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <Border DockPanel.Dock="Top" Style="{StaticResource ModernSearchBoxStyle}" Margin="8,8,8,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBox Name="txtLibrarySearch" Grid.Column="0" Height="28" VerticalContentAlignment="Center" Text="Search library..." Foreground="{DynamicResource TextSecondary}" BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource BgDark}" ToolTip="Type to filter your library by name or ID"/>
-                                <Button Name="btnLibraryClearSearch" Grid.Column="1" Content="Clear" Width="60" Height="28" Margin="6,0,0,0" Style="{StaticResource ActionBtn}" ToolTip="Clear the search filter"/>
+                                <!-- Inline magnifying glass icon -->
+                                <Path Grid.Column="0" Data="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"
+                                      Fill="{DynamicResource TextMuted}" Stretch="Uniform" Height="14" Width="14"
+                                      VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                <TextBox Name="txtLibrarySearch" Grid.Column="1" Height="38"
+                                         VerticalContentAlignment="Center" Text="Search library..."
+                                         Background="Transparent" BorderThickness="0"
+                                         Padding="0,0,0,0" Margin="0"
+                                         FontSize="14"
+                                         Foreground="{DynamicResource TextSecondary}"
+                                         CaretBrush="{DynamicResource TextPrimary}"
+                                         SelectionBrush="{DynamicResource Accent}" ToolTip="Type to filter your library by name or ID"/>
+                                <!-- Inline clear button (hidden by default) -->
+                                <Button Name="btnLibraryClearSearch" Grid.Column="2" Content="X"
+                                        Width="28" Height="28" Margin="0,0,6,0"
+                                        VerticalAlignment="Center" HorizontalAlignment="Center"
+                                        Visibility="Collapsed" Cursor="Hand"
+                                        ToolTip="Clear search"
+                                        Style="{StaticResource SearchClearBtnStyle}"/>
                             </Grid>
                         </Border>
                         <ListView Name="lstLibrary" Background="Transparent" Foreground="{DynamicResource TextPrimary}" BorderThickness="0"
@@ -26248,6 +26266,18 @@ if ($bdQuickFind -and $txtGlobalSearch) {
 $bdQuickFind.Add_MouseLeftButtonDown({ $txtGlobalSearch.Focus() })
 }
 
+# Helper: if library sub-view is active, switch back to catalog list.
+function Reset-WmtLibraryToCatalog {
+    if ($brdLibraryList -and $brdLibraryList.Visibility -eq "Visible") {
+        $brdLibraryList.Visibility = "Collapsed"
+        if ($brdCatalogList) { $brdCatalogList.Visibility = "Visible" }
+        if ($btnBackToCatalog) { $btnBackToCatalog.Visibility = "Collapsed" }
+        if ($btnLibraryRefresh) { $btnLibraryRefresh.Visibility = "Collapsed" }
+        if ($lblLibraryStatus) { $lblLibraryStatus.Text = "" }
+        if ($btnShowLibrary) { $btnShowLibrary.Style = ($window.FindResource("ActionBtn") -as [System.Windows.Style]) }
+    }
+}
+
 # --- TABS LOGIC ---
 foreach ($tabButton in $script:WmtTabButtonControls) {
 $tabButton.Add_Click({
@@ -26256,6 +26286,8 @@ $tabButton.Add_Click({
         # Hide tweaks overlay when leaving tweaks tab
         $tweaksOverlay = Get-Ctrl "tweaksLoadingOverlay"
         if ($tweaksOverlay) { $tweaksOverlay.Visibility = "Collapsed" }
+        # Reset library sub-view state if leaving the catalog while in library view.
+        Reset-WmtLibraryToCatalog
         foreach ($btn in $script:WmtTabButtonControls) {
             $btn.ClearValue([System.Windows.Controls.Button]::BackgroundProperty)
             $btn.Foreground = $window.Resources["TextSecondary"]
@@ -40240,9 +40272,11 @@ return $results.ToArray()
 }
 
 if ($btnShowCatalog -and $btnBackToUpdates -and $btnCatalogInstall -and $btnCatalogSelectAll -and $btnCatalogClear -and $btnCatAll -and $btnCatBrowsers -and $btnCatDev -and $btnCatUtils -and $btnCatMedia -and $btnCatGames -and $btnCatSecurity -and $pnlCatalog -and $lstCatalog) {
+
 $btnShowCatalog.Add_Click({
         $pnlUpdates.Visibility = "Collapsed"
         $pnlCatalog.Visibility = "Visible"
+        Reset-WmtLibraryToCatalog
         Add-WmtCatalogListItems -ListView $lstCatalog -Items $script:SoftwareCatalog
         # Pre-load library scan in the background so "Your Library"
         # results are ready when the user clicks the button.
@@ -40256,16 +40290,14 @@ $btnBackToUpdates.Add_Click({
         $pnlUpdates.Visibility = "Visible"
     })
 
-$btnCatAll.Add_Click({
-        Add-WmtCatalogListItems -ListView $lstCatalog -Items $script:SoftwareCatalog
-    })
+$btnCatAll.Add_Click({ Reset-WmtLibraryToCatalog; Add-WmtCatalogListItems -ListView $lstCatalog -Items $script:SoftwareCatalog })
 
-$btnCatBrowsers.Add_Click({ Get-CatalogByCategory "Browsers" })
-$btnCatDev.Add_Click({ Get-CatalogByCategory "Development" })
-$btnCatUtils.Add_Click({ Get-CatalogByCategory "Utilities" })
-$btnCatMedia.Add_Click({ Get-CatalogByCategory "Multimedia" })
-$btnCatGames.Add_Click({ Get-CatalogByCategory "Gaming" })
-$btnCatSecurity.Add_Click({ Get-CatalogByCategory "Security" })
+$btnCatBrowsers.Add_Click({ Reset-WmtLibraryToCatalog; Get-CatalogByCategory "Browsers" })
+$btnCatDev.Add_Click({ Reset-WmtLibraryToCatalog; Get-CatalogByCategory "Development" })
+$btnCatUtils.Add_Click({ Reset-WmtLibraryToCatalog; Get-CatalogByCategory "Utilities" })
+$btnCatMedia.Add_Click({ Reset-WmtLibraryToCatalog; Get-CatalogByCategory "Multimedia" })
+$btnCatGames.Add_Click({ Reset-WmtLibraryToCatalog; Get-CatalogByCategory "Gaming" })
+$btnCatSecurity.Add_Click({ Reset-WmtLibraryToCatalog; Get-CatalogByCategory "Security" })
 }
 
 function Get-CatalogByCategory($Category) {
@@ -41031,25 +41063,45 @@ function Update-WmtLibrarySearch {
 }
 
 if ($txtLibrarySearch) {
-    # Placeholder behavior (focus/blur).
+    # Get reference to the search box border for focus glow effect
+    $script:LibrarySearchBorder = $txtLibrarySearch.Parent
+    if ($script:LibrarySearchBorder -and $script:LibrarySearchBorder.Parent -is [System.Windows.Controls.Border]) {
+        $script:LibrarySearchBorder = $script:LibrarySearchBorder.Parent
+    }
+
+    # Placeholder behavior (focus/blur) with border glow.
     $txtLibrarySearch.Add_GotFocus({
             if ($txtLibrarySearch.Text -eq $script:WmtLibrarySearchPlaceholder) {
                 $txtLibrarySearch.Text = ""
-                $txtLibrarySearch.Foreground = (New-WmtBrush "TextPrimary")
+                $txtLibrarySearch.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, "TextPrimary")
+            }
+            if ($script:LibrarySearchBorder) {
+                $script:LibrarySearchBorder.SetResourceReference([System.Windows.Controls.Border]::BorderBrushProperty, "Accent")
+                $script:LibrarySearchBorder.BorderThickness = [System.Windows.Thickness]::new(2)
             }
         }.GetNewClosure())
 
     $txtLibrarySearch.Add_LostFocus({
             if ([string]::IsNullOrWhiteSpace($txtLibrarySearch.Text)) {
                 $txtLibrarySearch.Text = $script:WmtLibrarySearchPlaceholder
-                $txtLibrarySearch.Foreground = (New-WmtBrush "TextSecondary")
+                $txtLibrarySearch.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, "TextMuted")
+            }
+            if ($script:LibrarySearchBorder) {
+                $script:LibrarySearchBorder.SetResourceReference([System.Windows.Controls.Border]::BorderBrushProperty, "BorderBrush")
+                $script:LibrarySearchBorder.BorderThickness = [System.Windows.Thickness]::new(1)
             }
         }.GetNewClosure())
 
-    # Debounced filter on text change.
+    # Debounced filter on text change + toggle clear button.
     $txtLibrarySearch.Add_TextChanged({
             try { $script:WmtLibrarySearchTimer.Stop() } catch {}
             try { $script:WmtLibrarySearchTimer.Start() } catch {}
+            # Toggle clear button visibility
+            $hasRealText = (-not [string]::IsNullOrWhiteSpace($txtLibrarySearch.Text)) -and
+                            ($txtLibrarySearch.Text -ne $script:WmtLibrarySearchPlaceholder)
+            if ($btnLibraryClearSearch) {
+                $btnLibraryClearSearch.Visibility = if ($hasRealText) { "Visible" } else { "Collapsed" }
+            }
         }.GetNewClosure())
 
     $script:WmtLibrarySearchTimer.Add_Tick({
@@ -41062,7 +41114,8 @@ if ($txtLibrarySearch) {
 if ($btnLibraryClearSearch) {
     $btnLibraryClearSearch.Add_Click({
             $txtLibrarySearch.Text = $script:WmtLibrarySearchPlaceholder
-            $txtLibrarySearch.Foreground = (New-WmtBrush "TextSecondary")
+            $txtLibrarySearch.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, "TextMuted")
+            $btnLibraryClearSearch.Visibility = "Collapsed"
             Update-WmtLibrarySearch
         }.GetNewClosure())
 }
