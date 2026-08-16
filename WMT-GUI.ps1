@@ -22892,10 +22892,10 @@ powercfg /S SCHEME_CURRENT | Out-Null
                             </Grid>
                         </Border>
                         <ListView Name="lstLibrary" Background="Transparent" Foreground="{DynamicResource TextPrimary}" BorderThickness="0"
-                                  SelectionMode="Single" AlternationCount="2" ItemContainerStyle="{StaticResource FwItem}"
+                                  SelectionMode="Single" ItemContainerStyle="{StaticResource FwItem}"
                                   VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
                             <ListView.ContextMenu>
-                                <ContextMenu Name="ctxLibrary" StaysOpen="True">
+                                <ContextMenu Name="ctxLibrary">
                                     <MenuItem Name="miLibLaunch" Header="Launch / Play" ToolTip="Launch the game if it is installed"/>
                                     <MenuItem Name="miLibInstall" Header="Install" ToolTip="Download and install this game"/>
                                     <MenuItem Name="miLibUninstall" Header="Uninstall / Delete" ToolTip="Remove the game from your system"/>
@@ -26193,6 +26193,7 @@ $brdLibraryList = Get-Ctrl "brdLibraryList"
 $pnlCatalogActions = Get-Ctrl "pnlCatalogActions"
 $btnShowLibrary = Get-Ctrl "btnShowLibrary"
 $ctxLibrary = Get-Ctrl "ctxLibrary"
+try { Set-WmtContextMenuChrome -ContextMenu $ctxLibrary } catch {}
 $miLibLaunch = Get-Ctrl "miLibLaunch"
 $miLibInstall = Get-Ctrl "miLibInstall"
 $miLibUninstall = Get-Ctrl "miLibUninstall"
@@ -28148,21 +28149,22 @@ $miUninstall.Add_Click({
 })
 [void]$ctxMenu.Items.Add($miUninstall)
 
-# 3b. Repair Selected (winget repair)
+# 3b. Repair Selected
 $miRepair = New-Object System.Windows.Controls.MenuItem
 $miRepair.Header = "Repair Selected"
-$miRepair.ToolTip = "Run winget repair on selected packages to fix issues"
+$miRepair.ToolTip = "Repair selected packages using the appropriate command for each source"
 $miRepair.Add_Click({
     $selected = @($lstWinget.SelectedItems)
     if ($selected.Count -eq 0) { return }
-    # Filter to only winget-sourced packages (repair is winget-only)
-    $repairable = @($selected | Where-Object { ([string]$_.Source).ToLowerInvariant() -eq "winget" })
+    # Filter to sources that have repair support
+    $repairableSources = @("winget", "pip", "pip3", "npm", "npm (global)", "pnpm", "pnpm (global)", "chocolatey", "choco", "scoop", "gem", "ruby", "cargo", "rust", "dotnet", "psmodule", "composer")
+    $repairable = @($selected | Where-Object { ([string]$_.Source).ToLowerInvariant() -in $repairableSources })
     if ($repairable.Count -eq 0) {
-        Show-WmtMessageBox -Message "Repair is only available for winget-sourced packages. None of the selected items are from winget." -Title "Repair Unavailable" -Image Information | Out-Null
+        Show-WmtMessageBox -Message "Repair is not available for any of the selected items. Supported sources: winget, pip, npm, pnpm, choco, scoop, gem, cargo, dotnet, psmodule, composer." -Title "Repair Unavailable" -Image Information | Out-Null
         return
     }
     if ($repairable.Count -lt $selected.Count) {
-        $msg = "$($repairable.Count) of $($selected.Count) selected items are winget packages and will be repaired. The rest will be skipped."
+        $msg = "$($repairable.Count) of $($selected.Count) selected items support repair and will be repaired. The rest will be skipped."
         if ((Show-WmtMessageBox -Message $msg -Title "Repair Selected" -Button YesNo -Image Information) -ne [System.Windows.MessageBoxResult]::Yes) { return }
     }
     & $Script:StartWingetAction -ListItems $repairable -ActionName "Repair"
@@ -30755,6 +30757,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "scoop install `"$id`"" }
                 if ($act -eq "Update") { $cmd = "scoop update `"$id`"" }
                 if ($act -eq "Uninstall") { $cmd = "scoop uninstall `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "scoop reset `"$id`"" }
                 $userCmd = $cmd # Scoop commands are same for user
             }
             # --- RUBY GEMS ---
@@ -30762,6 +30765,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "gem install `"$id`"" }
                 if ($act -eq "Update") { $cmd = "gem update `"$id`"" }
                 if ($act -eq "Uninstall") { $cmd = "gem uninstall `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "gem pristine `"$id`"" }
                 $userCmd = $cmd
             }
             # --- RUST CARGO ---
@@ -30769,6 +30773,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "cargo install `"$id`"" }
                 if ($act -eq "Update") { $cmd = "cargo install --force `"$id`"" } # Cargo needs force to overwrite/update binaries
                 if ($act -eq "Uninstall") { $cmd = "cargo uninstall `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "cargo install --force `"$id`"" }
                 $userCmd = $cmd
             }
             # --- .NET GLOBAL TOOLS ---
@@ -30776,6 +30781,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "dotnet tool install --global `"$id`"" }
                 if ($act -eq "Update") { $cmd = "dotnet tool update --global `"$id`"" }
                 if ($act -eq "Uninstall") { $cmd = "dotnet tool uninstall --global `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "dotnet tool install --global `"$id`" --force" }
                 $userCmd = $cmd
             }
             # --- POWERSHELL MODULES ---
@@ -30783,6 +30789,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Install-Module -Name '$id' -Scope CurrentUser -Force -AllowClobber`"" }
                 if ($act -eq "Update") { $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Update-Module -Name '$id' -Force`"" }
                 if ($act -eq "Uninstall") { $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Uninstall-Module -Name '$id' -AllVersions -Force`"" }
+                if ($act -eq "Repair") { $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command `"Install-Module -Name '$id' -Scope CurrentUser -Force -AllowClobber`"" }
                 $userCmd = $cmd
             }
             # --- PHP COMPOSER GLOBAL PACKAGES ---
@@ -30790,6 +30797,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "composer global require `"$id`" --no-interaction" }
                 if ($act -eq "Update") { $cmd = "composer global update `"$id`" --with-all-dependencies --no-interaction" }
                 if ($act -eq "Uninstall") { $cmd = "composer global remove `"$id`" --no-interaction" }
+                if ($act -eq "Repair") { $cmd = "composer reinstall `"$id`" --no-interaction" }
                 $userCmd = $cmd
             }
             # --- PYTHON PIP ---
@@ -30807,6 +30815,10 @@ exit /b %WMT_EXIT%
                     $cmd = "python -m pip --disable-pip-version-check --no-input uninstall -y `"$id`""
                     $pipArguments = @("-m", "pip", "--disable-pip-version-check", "--no-input", "uninstall", "-y", [string]$id)
                 }
+                if ($act -eq "Repair") {
+                    $cmd = "python -m pip $pipSafetyFlags install --force-reinstall `"$id`""
+                    $pipArguments = @("-m", "pip", "--disable-pip-version-check", "--no-input", "--timeout", "30", "--retries", "2", "install", "--force-reinstall", [string]$id)
+                }
                 $userCmd = $cmd
             }
             # --- NODE NPM & PNPM ---
@@ -30814,24 +30826,28 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "npm install `"$id`"" }
                 if ($act -eq "Update") { $cmd = "npm update `"$id`"" }
                 if ($act -eq "Uninstall") { $cmd = "npm uninstall `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "npm install `"$id`" --force" }
                 $userCmd = $cmd
             }
             elseif ($src -eq "npm (global)") {
                 if ($act -eq "Install") { $cmd = "npm install -g `"$id`"" }
                 if ($act -eq "Update") { $cmd = "npm update -g `"$id`"" }
                 if ($act -eq "Uninstall") { $cmd = "npm uninstall -g `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "npm install -g `"$id`" --force" }
                 $userCmd = $cmd
             }
             elseif ($src -eq "pnpm") {
                 if ($act -eq "Install") { $cmd = "pnpm install `"$id`"" }
                 if ($act -eq "Update") { $cmd = "pnpm update `"$id`"" }
                 if ($act -eq "Uninstall") { $cmd = "pnpm remove `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "pnpm rebuild `"$id`"" }
                 $userCmd = $cmd
             }
             elseif ($src -eq "pnpm (global)") {
                 if ($act -eq "Install") { $cmd = "pnpm add -g `"$id`"" }
                 if ($act -eq "Update") { $cmd = "pnpm update -g `"$id`"" }
                 if ($act -eq "Uninstall") { $cmd = "pnpm remove -g `"$id`"" }
+                if ($act -eq "Repair") { $cmd = "pnpm rebuild `"$id`"" }
                 $userCmd = $cmd
             }
             # --- CHOCOLATEY ---
@@ -30839,6 +30855,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $cmd = "choco install `"$id`" -y" }
                 if ($act -eq "Update") { $cmd = "choco upgrade `"$id`" -y" }
                 if ($act -eq "Uninstall") { $cmd = "choco uninstall `"$id`" -y" }
+                if ($act -eq "Repair") { $cmd = "choco install `"$id`" -y --force" }
                 $userCmd = $cmd
             }
         }
@@ -40925,24 +40942,23 @@ function Invoke-WmtLibraryInstall {
 function Invoke-WmtLibraryRepair {
     param($Item)
     if (-not $Item) { return }
-    $source = [string]$Item.Source
+    $source = ([string]$Item.Source).ToLowerInvariant()
     $id = [string]$Item.Id
     $name = [string]$Item.Name
 
-    # Repair is only available for installed games.
+    # Repair is only available for installed items.
     $isInstalled = $false
     try { if ($Item.PSObject.Properties["IsInstalled"]) { $isInstalled = [bool]$Item.IsInstalled } } catch {}
     if (-not $isInstalled) {
-        Show-WmtMessageBox -Message "'$name' is not installed. Repair is only available for installed games." -Title "Repair Unavailable" -Image Information | Out-Null
+        Show-WmtMessageBox -Message "'$name' is not installed. Repair is only available for installed items." -Title "Repair Unavailable" -Image Information | Out-Null
         return
     }
 
-    if ($source -eq "Steam") {
-        # Steam uses the steam:// protocol to verify game files.
-        Start-Process "steam://validategamefiles/$id"
+    if ($source -eq "steam") {
+        Start-Process "steam://validate/$id"
         Write-GuiLog "Verifying Steam game files: $name (app $id)"
     }
-    elseif ($source -eq "Epic") {
+    elseif ($source -eq "epic" -or $source -eq "legendary") {
         try {
             $legExe = Get-WmtLegendaryExePath
             if ([string]::IsNullOrWhiteSpace($legExe) -or -not (Test-Path -LiteralPath $legExe -PathType Leaf)) {
@@ -40950,8 +40966,8 @@ function Invoke-WmtLibraryRepair {
                 if ($cmd -and $cmd.Source) { $legExe = [string]$cmd.Source }
             }
             if ($legExe -and (Test-Path -LiteralPath $legExe -PathType Leaf)) {
-                Start-Process -FilePath $legExe -ArgumentList "repair", $id -WindowStyle Normal
-                Write-GuiLog "Repairing Epic game: $name (app $id)"
+                Start-Process -FilePath $legExe -ArgumentList "verify", $id -WindowStyle Normal
+                Write-GuiLog "Verifying Epic game files: $name (app $id)"
             }
             else {
                 Show-WmtMessageBox -Message "Legendary is not installed. Cannot repair Epic games." -Title "Repair Failed" -Image Warning | Out-Null
@@ -40961,10 +40977,68 @@ function Invoke-WmtLibraryRepair {
             Show-WmtMessageBox -Message "Failed to start repair: $($_.Exception.Message)" -Title "Repair Failed" -Image Warning | Out-Null
         }
     }
-    elseif ($source -eq "GOG") {
-        # GOG games are DRM-free; there is no built-in repair tool.
-        # Reinstalling via gogdl is the closest equivalent.
-        Show-WmtMessageBox -Message "GOG games are DRM-free and do not have a repair mechanism.`n`nTo fix issues, you can reinstall the game from GOG Galaxy or re-download it via gogdl." -Title "Repair" -Image Information | Out-Null
+    elseif ($source -eq "gog" -or $source -eq "gogdl") {
+        try {
+            $installDir = Get-WmtLibraryItemInstallDir -Item $Item
+            if ([string]::IsNullOrWhiteSpace($installDir) -or -not (Test-Path -LiteralPath $installDir -PathType Container)) {
+                Show-WmtMessageBox -Message "Could not find the install directory for this GOG game." -Title "Repair Failed" -Image Warning | Out-Null
+                return
+            }
+            $gogdlCmd = Get-Command gogdl -ErrorAction SilentlyContinue
+            if (-not $gogdlCmd) {
+                Show-WmtMessageBox -Message "gogdl is not installed. Cannot repair GOG games." -Title "Repair Failed" -Image Warning | Out-Null
+                return
+            }
+            Start-Process -FilePath $gogdlCmd.Source -ArgumentList "repair", $id, "--path", "`"$installDir`"" -WindowStyle Normal
+            Write-GuiLog "Repairing GOG game: $name (id $id)"
+        }
+        catch {
+            Show-WmtMessageBox -Message "Failed to start GOG repair: $($_.Exception.Message)" -Title "Repair Failed" -Image Warning | Out-Null
+        }
+    }
+    elseif ($source -eq "winget") {
+        Start-Process -FilePath "winget" -ArgumentList "repair", "--id", "`"$id`"", "--accept-source-agreements", "--accept-package-agreements" -WindowStyle Normal
+        Write-GuiLog "Repairing winget package: $name ($id)"
+    }
+    elseif ($source -eq "pip" -or $source -eq "pip3") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "python -m pip install --force-reinstall `"$id`"" -WindowStyle Normal
+        Write-GuiLog "Force-reinstalling pip package: $name"
+    }
+    elseif ($source -eq "npm") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "npm install `"$id`" --force" -WindowStyle Normal
+        Write-GuiLog "Force-reinstalling npm package: $name"
+    }
+    elseif ($source -eq "pnpm") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "pnpm rebuild `"$id`"" -WindowStyle Normal
+        Write-GuiLog "Rebuilding pnpm package: $name"
+    }
+    elseif ($source -eq "chocolatey" -or $source -eq "choco") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "choco install `"$id`" -y --force" -WindowStyle Normal
+        Write-GuiLog "Force-reinstalling choco package: $name"
+    }
+    elseif ($source -eq "scoop") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "scoop reset `"$id`"" -WindowStyle Normal
+        Write-GuiLog "Resetting scoop package: $name"
+    }
+    elseif ($source -eq "gem" -or $source -eq "ruby") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "gem pristine `"$id`"" -WindowStyle Normal
+        Write-GuiLog "Restoring pristine gem: $name"
+    }
+    elseif ($source -eq "cargo" -or $source -eq "rust") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "cargo install --force `"$id`"" -WindowStyle Normal
+        Write-GuiLog "Force-reinstalling cargo package: $name"
+    }
+    elseif ($source -eq "dotnet") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "dotnet tool install --global `"$id`" --force" -WindowStyle Normal
+        Write-GuiLog "Force-reinstalling dotnet tool: $name"
+    }
+    elseif ($source -eq "psmodule") {
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Install-Module -Name '$id' -Scope CurrentUser -Force -AllowClobber" -WindowStyle Normal
+        Write-GuiLog "Force-reinstalling PowerShell module: $name"
+    }
+    elseif ($source -eq "composer") {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "composer reinstall `"$id`" --no-interaction" -WindowStyle Normal
+        Write-GuiLog "Reinstalling composer package: $name"
     }
     else {
         Show-WmtMessageBox -Message "Repair is not supported for source: $source" -Title "Repair Unavailable" -Image Information | Out-Null
@@ -41024,6 +41098,12 @@ function Invoke-WmtLibraryUninstall {
 
 # Wire up context menu: show/hide items based on installed state.
 if ($ctxLibrary -and $lstLibrary) {
+    # Select item on right-click (SelectionMode=Single doesn't auto-select).
+    $lstLibrary.Add_PreviewMouseRightButtonDown({
+        param($s, $e)
+        try { Set-WmtListViewRightClickSelection -ListView $s -OriginalSource $e.OriginalSource } catch {}
+    })
+
     $lstLibrary.Add_ContextMenuOpening({
             $item = Get-WmtSelectedLibraryItem
             if (-not $item) {
