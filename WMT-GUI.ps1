@@ -22899,6 +22899,7 @@ powercfg /S SCHEME_CURRENT | Out-Null
                                     <MenuItem Name="miLibLaunch" Header="Launch / Play" ToolTip="Launch the game if it is installed"/>
                                     <MenuItem Name="miLibInstall" Header="Install" ToolTip="Download and install this game"/>
                                     <MenuItem Name="miLibUninstall" Header="Uninstall / Delete" ToolTip="Remove the game from your system"/>
+                                    <MenuItem Name="miLibRepair" Header="Repair" ToolTip="Verify game files and repair installation"/>
                                     <Separator/>
                                     <MenuItem Name="miLibGoToDir" Header="Go to install directory" ToolTip="Open the folder where the game is installed"/>
                                     <MenuItem Name="miLibStorePage" Header="Open store page" ToolTip="Open the game's store page in your browser"/>
@@ -24073,7 +24074,8 @@ powercfg /S SCHEME_CURRENT | Out-Null
 
                 <!-- Rules List Card -->
                 <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="0" Margin="0">
-                    <ListView Name="lstFirewall" Background="Transparent" Foreground="{DynamicResource TextPrimary}" BorderThickness="0" AlternationCount="2" ItemContainerStyle="{StaticResource FwItem}">
+                    <ListView Name="lstFirewall" Background="Transparent" Foreground="{DynamicResource TextPrimary}" BorderThickness="0" AlternationCount="2" ItemContainerStyle="{StaticResource FwItem}"
+                              VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Header="Rule Name" Width="360" DisplayMemberBinding="{Binding Name}"/>
@@ -26194,6 +26196,7 @@ $ctxLibrary = Get-Ctrl "ctxLibrary"
 $miLibLaunch = Get-Ctrl "miLibLaunch"
 $miLibInstall = Get-Ctrl "miLibInstall"
 $miLibUninstall = Get-Ctrl "miLibUninstall"
+$miLibRepair = Get-Ctrl "miLibRepair"
 $miLibGoToDir = Get-Ctrl "miLibGoToDir"
 $miLibStorePage = Get-Ctrl "miLibStorePage"
 $miLibCopyId = Get-Ctrl "miLibCopyId"
@@ -28144,6 +28147,27 @@ $miUninstall.Add_Click({
     $btnWingetUninstall.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent))) 
 })
 [void]$ctxMenu.Items.Add($miUninstall)
+
+# 3b. Repair Selected (winget repair)
+$miRepair = New-Object System.Windows.Controls.MenuItem
+$miRepair.Header = "Repair Selected"
+$miRepair.ToolTip = "Run winget repair on selected packages to fix issues"
+$miRepair.Add_Click({
+    $selected = @($lstWinget.SelectedItems)
+    if ($selected.Count -eq 0) { return }
+    # Filter to only winget-sourced packages (repair is winget-only)
+    $repairable = @($selected | Where-Object { ([string]$_.Source).ToLowerInvariant() -eq "winget" })
+    if ($repairable.Count -eq 0) {
+        Show-WmtMessageBox -Message "Repair is only available for winget-sourced packages. None of the selected items are from winget." -Title "Repair Unavailable" -Image Information | Out-Null
+        return
+    }
+    if ($repairable.Count -lt $selected.Count) {
+        $msg = "$($repairable.Count) of $($selected.Count) selected items are winget packages and will be repaired. The rest will be skipped."
+        if ((Show-WmtMessageBox -Message $msg -Title "Repair Selected" -Button YesNo -Image Information) -ne [System.Windows.MessageBoxResult]::Yes) { return }
+    }
+    & $Script:StartWingetAction -ListItems $repairable -ActionName "Repair"
+})
+[void]$ctxMenu.Items.Add($miRepair)
 
 # 4. View Manifest
 $miManifest = New-Object System.Windows.Controls.MenuItem
@@ -30511,6 +30535,7 @@ exit /b %WMT_EXIT%
                 if ($act -eq "Install") { $wingetArgs = "install --id `"$id`" $flags"; $cmd = "winget $wingetArgs"; $userCmd = "winget install --id `"$id`" $userFlags" }
                 if ($act -eq "Update") { $wingetArgs = "upgrade --id `"$id`"$includeUnknownFlag $flags"; $cmd = "winget $wingetArgs"; $userCmd = "winget upgrade --id `"$id`"$includeUnknownFlag $userFlags" }
                 if ($act -eq "Uninstall") { $wingetArgs = "uninstall --id `"$id`" $flags"; $cmd = "winget $wingetArgs"; $userCmd = "winget uninstall --id `"$id`" $userFlags" }
+                if ($act -eq "Repair") { $wingetArgs = "repair --id `"$id`" $flags"; $cmd = "winget $wingetArgs"; $userCmd = "winget repair --id `"$id`" $userFlags" }
             }
             # --- MICROSOFT STORE ---
             elseif ($src -eq "msstore") {
@@ -36602,7 +36627,7 @@ if ([string]::IsNullOrEmpty($s)) { return 0.0 }
 $score = 0.0
 foreach ($ch in $s.ToCharArray()) {
     $c = [string]$ch
-    if ($c -match '\s') { $score += 0.35 }
+    if ([char]::IsWhiteSpace($ch)) { $score += 0.35 }
     elseif ("ilI1.,:;|![]()".IndexOf($c) -ge 0) { $score += 0.35 }
     elseif ("MW@#%&".IndexOf($c) -ge 0) { $score += 1.25 }
     elseif ($c -cmatch '[A-Z0-9]') { $score += 0.90 }
@@ -36640,7 +36665,12 @@ if ($grid.Columns.Count -gt 6) {
 
 $available = 0.0
 try {
-    $viewer = Get-WmtVisualDescendant -Element $ListView -DescendantType ([System.Windows.Controls.ScrollViewer])
+    # Use cached ScrollViewer if available; otherwise walk the visual tree once and cache it.
+    if (-not $script:WmtUpdateListCachedScrollViewer -or $script:WmtUpdateListCachedScrollViewerTag -ne $ListView) {
+        $script:WmtUpdateListCachedScrollViewer = Get-WmtVisualDescendant -Element $ListView -DescendantType ([System.Windows.Controls.ScrollViewer])
+        $script:WmtUpdateListCachedScrollViewerTag = $ListView
+    }
+    $viewer = $script:WmtUpdateListCachedScrollViewer
     if ($viewer -and -not [double]::IsNaN([double]$viewer.ViewportWidth) -and [double]$viewer.ViewportWidth -gt 150) {
         # ViewportWidth already excludes the vertical scrollbar, so using it prevents the
         # right-side blank GridView filler from being mistaken for another column.
@@ -36752,10 +36782,22 @@ param([System.Windows.Controls.ListView]$ListView = $lstWinget)
 if (-not $ListView) { return }
 $targetListView = $ListView
 try {
-    $resizeAction = {
-        Set-WmtUpdateListSmartColumnWidths -ListView $targetListView
-    }.GetNewClosure()
-    [void]$targetListView.Dispatcher.BeginInvoke([Action]$resizeAction, [System.Windows.Threading.DispatcherPriority]::Background)
+    # Cancel any pending resize to avoid piling up Background operations
+    if ($script:WmtColumnResizeTimer) {
+        try { $script:WmtColumnResizeTimer.Stop() } catch {}
+    }
+    if (-not $script:WmtColumnResizeTimer) {
+        $script:WmtColumnResizeTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:WmtColumnResizeTimer.Interval = [TimeSpan]::FromMilliseconds(80)
+        $script:WmtColumnResizeTimer.Add_Tick({
+            try { $script:WmtColumnResizeTimer.Stop() } catch {}
+            if ($script:WmtColumnResizeTimerTag) {
+                Set-WmtUpdateListSmartColumnWidths -ListView $script:WmtColumnResizeTimerTag
+            }
+        })
+    }
+    $script:WmtColumnResizeTimerTag = $targetListView
+    try { $script:WmtColumnResizeTimer.Start() } catch {}
 }
 catch {
     try { Set-WmtUpdateListSmartColumnWidths -ListView $targetListView } catch {}
@@ -36897,12 +36939,14 @@ $sortSpec = foreach ($rule in $Chain) {
 if (-not $sortSpec -or $sortSpec.Count -eq 0) { return }
 
 $selectedItems = @($ListView.SelectedItems)
+$selectedSet = [System.Collections.Generic.HashSet[object]]::new()
+foreach ($si in $selectedItems) { [void]$selectedSet.Add($si) }
 $sorted = $items | Sort-Object -Property $sortSpec
 try { $ListView.Items.SortDescriptions.Clear() } catch {}
 $ListView.Items.Clear()
 foreach ($item in $sorted) {
     [void]$ListView.Items.Add($item)
-    if ($selectedItems -contains $item) {
+    if ($selectedSet.Contains($item)) {
         try { $ListView.SelectedItems.Add($item) } catch {}
     }
 }
@@ -38741,8 +38785,15 @@ if ($fwSearchParent -and $fwSearchParent.Parent -is [System.Windows.Controls.Bor
     $script:FwSearchBorder = $fwSearchParent.Parent
 }
 $txtFwSearch.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, "TextMuted")
-$txtFwSearch.Add_TextChanged({
+$script:FwSearchDebounceTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:FwSearchDebounceTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+$script:FwSearchDebounceTimer.Add_Tick({
+    try { $script:FwSearchDebounceTimer.Stop() } catch {}
     Update-FirewallListView
+})
+$txtFwSearch.Add_TextChanged({
+    try { $script:FwSearchDebounceTimer.Stop() } catch {}
+    try { $script:FwSearchDebounceTimer.Start() } catch {}
     $hasRealText = (-not [string]::IsNullOrWhiteSpace($txtFwSearch.Text)) -and
                     ($txtFwSearch.Text -notin @("Search Rules...", "Search rules..."))
     if ($btnFwClearSearch) {
@@ -40871,7 +40922,55 @@ function Invoke-WmtLibraryInstall {
     }
 }
 
-# Helper: uninstall a game.
+function Invoke-WmtLibraryRepair {
+    param($Item)
+    if (-not $Item) { return }
+    $source = [string]$Item.Source
+    $id = [string]$Item.Id
+    $name = [string]$Item.Name
+
+    # Repair is only available for installed games.
+    $isInstalled = $false
+    try { if ($Item.PSObject.Properties["IsInstalled"]) { $isInstalled = [bool]$Item.IsInstalled } } catch {}
+    if (-not $isInstalled) {
+        Show-WmtMessageBox -Message "'$name' is not installed. Repair is only available for installed games." -Title "Repair Unavailable" -Image Information | Out-Null
+        return
+    }
+
+    if ($source -eq "Steam") {
+        # Steam uses the steam:// protocol to verify game files.
+        Start-Process "steam://validategamefiles/$id"
+        Write-GuiLog "Verifying Steam game files: $name (app $id)"
+    }
+    elseif ($source -eq "Epic") {
+        try {
+            $legExe = Get-WmtLegendaryExePath
+            if ([string]::IsNullOrWhiteSpace($legExe) -or -not (Test-Path -LiteralPath $legExe -PathType Leaf)) {
+                $cmd = Get-Command legendary -ErrorAction SilentlyContinue
+                if ($cmd -and $cmd.Source) { $legExe = [string]$cmd.Source }
+            }
+            if ($legExe -and (Test-Path -LiteralPath $legExe -PathType Leaf)) {
+                Start-Process -FilePath $legExe -ArgumentList "repair", $id -WindowStyle Normal
+                Write-GuiLog "Repairing Epic game: $name (app $id)"
+            }
+            else {
+                Show-WmtMessageBox -Message "Legendary is not installed. Cannot repair Epic games." -Title "Repair Failed" -Image Warning | Out-Null
+            }
+        }
+        catch {
+            Show-WmtMessageBox -Message "Failed to start repair: $($_.Exception.Message)" -Title "Repair Failed" -Image Warning | Out-Null
+        }
+    }
+    elseif ($source -eq "GOG") {
+        # GOG games are DRM-free; there is no built-in repair tool.
+        # Reinstalling via gogdl is the closest equivalent.
+        Show-WmtMessageBox -Message "GOG games are DRM-free and do not have a repair mechanism.`n`nTo fix issues, you can reinstall the game from GOG Galaxy or re-download it via gogdl." -Title "Repair" -Image Information | Out-Null
+    }
+    else {
+        Show-WmtMessageBox -Message "Repair is not supported for source: $source" -Title "Repair Unavailable" -Image Information | Out-Null
+    }
+}
+
 function Invoke-WmtLibraryUninstall {
     param($Item)
     if (-not $Item) { return }
@@ -40935,9 +41034,10 @@ if ($ctxLibrary -and $lstLibrary) {
             $isInstalled = $false
             try { if ($item.PSObject.Properties["IsInstalled"]) { $isInstalled = [bool]$item.IsInstalled } } catch {}
 
-            # Show Launch + Uninstall + Go to Dir only if installed.
+            # Show Launch + Uninstall + Repair + Go to Dir only if installed.
             if ($miLibLaunch) { $miLibLaunch.Visibility = if ($isInstalled) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed } }
             if ($miLibUninstall) { $miLibUninstall.Visibility = if ($isInstalled) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed } }
+            if ($miLibRepair) { $miLibRepair.Visibility = if ($isInstalled) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed } }
             if ($miLibGoToDir) { $miLibGoToDir.Visibility = if ($isInstalled) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed } }
 
             # Show Install only if NOT installed.
@@ -40966,6 +41066,13 @@ if ($ctxLibrary -and $lstLibrary) {
         $miLibUninstall.Add_Click({
                 $item = Get-WmtSelectedLibraryItem
                 Invoke-WmtLibraryUninstall -Item $item
+            }.GetNewClosure())
+    }
+
+    if ($miLibRepair) {
+        $miLibRepair.Add_Click({
+                $item = Get-WmtSelectedLibraryItem
+                Invoke-WmtLibraryRepair -Item $item
             }.GetNewClosure())
     }
 
