@@ -4744,11 +4744,16 @@ try {
     $script:TweakStatesReady = $false
     $script:TweakStatesBgStarted = $false
     $script:TweakStatesUpdating = $false
+    $script:OptionalFeaturesReady = $false
+    $script:OptionalFeaturesCheckStarted = $false
     # Dispose tweak states background job if still running
     if ($script:TweakStatesBgPS) { try { $script:TweakStatesBgPS.Dispose() } catch {}; $script:TweakStatesBgPS = $null; $script:TweakStatesBgAsync = $null }
     if ($script:TweakStatesBgTimer) { try { $script:TweakStatesBgTimer.Stop() } catch {}; $script:TweakStatesBgTimer = $null }
     if ($script:TweakStatesBgTimeout) { try { $script:TweakStatesBgTimeout.Stop() } catch {}; $script:TweakStatesBgTimeout = $null }
     if ($script:TweakStatesDebounceTimer) { try { $script:TweakStatesDebounceTimer.Stop() } catch {}; $script:TweakStatesDebounceTimer = $null }
+    # Dispose optional features background job if still running
+    if ($script:FeaturesCheckPS) { try { $script:FeaturesCheckPS.Dispose() } catch {}; $script:FeaturesCheckPS = $null; $script:FeaturesCheckAsync = $null }
+    if ($script:FeaturesCheckTimer) { try { $script:FeaturesCheckTimer.Stop() } catch {}; $script:FeaturesCheckTimer = $null }
 
     # Clear completed update ID tracking
     $script:WmtCompletedWindowsUpdateIds = $null
@@ -25215,14 +25220,17 @@ function Get-WmtRegistryPathExists {
 param([string]$Path)
 
 if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-if ($Path -like '*[*?]*') { return $false }
 
 try {
     $parts = Convert-WmtRegistryPath -Path $Path
     if (-not $parts) { return $false }
 
     $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
-    $key = $baseKey.OpenSubKey($parts.SubPath)
+    # Use OpenSubKey (default wildcardsAllowed=$false) so literal wildcard characters
+    # ('*','?') in the registry path are treated as literal subkey names, not glob
+    # patterns. This prevents PowerShell from triggering expensive recursive
+    # wildcard enumeration which causes process hangs (0xCFFFFFFF).
+    $key = $baseKey.OpenSubKey($parts.SubPath, $false)
     $exists = $null -ne $key
     if ($key) { $key.Close() }
     if ($baseKey) { $baseKey.Close() }
@@ -25246,14 +25254,16 @@ if ($script:TweakButtonStatesPathChecks.ContainsKey($Path)) {
 }
 
 try {
-    if ($Path -like '*[*?]*') {
-        $exists = Test-Path $Path -ErrorAction SilentlyContinue
+    # Always use the .NET-native Get-WmtRegistryPathExists for registry paths.
+    # It treats literal wildcard characters ('*','?') as subkey names instead of
+    # glob patterns, preventing the 0xCFFFFFFF hang caused by Test-Path's
+    # expensive recursive wildcard enumeration on registry provider paths.
+    if ($Path -match '^(HKLM|HKCU|HKCR|HKU|Registry::)') {
+        $exists = Get-WmtRegistryPathExists -Path $Path
     }
     else {
-        $exists = Get-WmtRegistryPathExists -Path $Path
-        if (-not $exists) {
-            $exists = Test-Path $Path -ErrorAction SilentlyContinue
-        }
+        # Non-registry filesystem paths: Test-Path is safe here
+        $exists = Test-Path $Path -ErrorAction SilentlyContinue
     }
 
     $script:TweakButtonStatesPathChecks[$Path] = $exists
@@ -25857,14 +25867,14 @@ try {
     $btn3D = Get-Ctrl "btnToggle3DObjects"
     if ($btn3D) {
         if ($sc.Count -gt 0) { $isSupported = $sc["3DObjects"] }
-        else { try { $isSupported = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}" } catch { $isSupported = $true } }
+        else { try { $isSupported = Get-WmtRegistryPathExists "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}" } catch { $isSupported = $true } }
         if (-not $isSupported) { $btn3D.IsEnabled = $false; $btn3D.Opacity = 0.45; $btn3D.ToolTip = "The 3D Objects shell folder has been removed in your version of Windows 11." }
     }
 
     $btnChat = Get-Ctrl "btnToggleChat"
     if ($btnChat) {
         if ($sc.Count -gt 0) { $isSupported = $sc["Chat"] }
-        else { try { $isSupported = Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn" } catch { $isSupported = $true } }
+        else { try { $isSupported = Get-WmtRegistryPathExists "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn" } catch { $isSupported = $true } }
         if (-not $isSupported) { $btnChat.IsEnabled = $false; $btnChat.Opacity = 0.45; $btnChat.ToolTip = "The Chat (Microsoft Teams) taskbar button has been removed in your version of Windows 11." }
     }
 
@@ -25878,14 +25888,14 @@ try {
     $btnActivity = Get-Ctrl "btnToggleActivity"
     if ($btnActivity) {
         if ($sc.Count -gt 0) { $isSupported = $sc["Activity"] }
-        else { try { $isSupported = Test-Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory" } catch { $isSupported = $true } }
+        else { try { $isSupported = Get-WmtRegistryPathExists "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory" } catch { $isSupported = $true } }
         if (-not $isSupported) { $btnActivity.IsEnabled = $false; $btnActivity.Opacity = 0.45; $btnActivity.ToolTip = "Activity History / Timeline has been removed in your version of Windows 11." }
     }
 
     $btnCEIP = Get-Ctrl "btnToggleCEIP"
     if ($btnCEIP) {
         if ($sc.Count -gt 0) { $isSupported = $sc["CEIP"] }
-        else { try { $isSupported = Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" } catch { $isSupported = $true } }
+        else { try { $isSupported = Get-WmtRegistryPathExists "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" } catch { $isSupported = $true } }
         if (-not $isSupported) { $btnCEIP.IsEnabled = $false; $btnCEIP.Opacity = 0.45; $btnCEIP.ToolTip = "The Customer Experience Improvement Program (CEIP) is no longer present on your system." }
     }
 
@@ -26389,7 +26399,7 @@ $tabButton.Add_Click({
                     # Show error on overlay briefly before hiding
                     Show-TweakStatesLoadError -Message "Failed to load tweak states. Toggle buttons may show incorrect states. Click Retry or switch tabs and back. Error: $errMsg"
                 }
-                Set-TweakStatesLoadingOverlay -Visible $false
+                Sync-WmtTweakOverlayHide
             }
         }
     })
@@ -27280,16 +27290,16 @@ $btnToggleCmdHere = Get-Ctrl "btnToggleCmdHere"
 if ($btnToggleCmdHere) {
 $btnToggleCmdHere.Add_Click({
         $p = "HKCU:\Software\Classes\Directory\shell\WmtCmdHere"
-        $exists = (Test-Path $p)
+        $exists = (Get-WmtRegistryPathExists -Path $p)
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Open CMD Here removed." } "Removing CMD Here..."
+            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Open CMD Here removed." } "Removing CMD Here..."
         }
         else {
             Invoke-UiCommand {
                 New-Item -Path $p -Force | Out-Null
-                Set-ItemProperty -Path $p -Name "(Default)" -Value "Open Command Prompt Here" -Force
+                Set-ItemProperty -LiteralPath $p -Name "(Default)" -Value "Open Command Prompt Here" -Force
                 New-Item -Path "$p\command" -Force | Out-Null
-                Set-ItemProperty -Path "$p\command" -Name "(Default)" -Value 'cmd.exe /k "cd %V"' -Force
+                Set-ItemProperty -LiteralPath "$p\command" -Name "(Default)" -Value 'cmd.exe /k "cd %V"' -Force
                 Write-GuiLog "Open CMD Here added."
             } "Adding CMD Here..."
         }
@@ -27301,17 +27311,19 @@ $btnToggleNotepadCtx = Get-Ctrl "btnToggleNotepadCtx"
 if ($btnToggleNotepadCtx) {
 $btnToggleNotepadCtx.Add_Click({
         $p = "HKCU:\Software\Classes\*\shell\WmtNotepad"
-        $exists = (Test-Path $p)
+        # Use .NET-native check — Test-Path treats '*' as a glob and triggers
+        # expensive recursive enumeration on the registry provider (hang 0xCFFFFFFF).
+        $exists = Get-WmtRegistryPathExists -Path $p
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Open with Notepad removed." } "Removing Notepad menu..."
+            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Open with Notepad removed." } "Removing Notepad menu..."
         }
         else {
             Invoke-UiCommand {
                 New-Item -Path $p -Force | Out-Null
-                Set-ItemProperty -Path $p -Name "(Default)" -Value "Open with Notepad" -Force
-                Set-ItemProperty -Path $p -Name "Icon" -Value "notepad.exe" -Force
+                Set-ItemProperty -LiteralPath $p -Name "(Default)" -Value "Open with Notepad" -Force
+                Set-ItemProperty -LiteralPath $p -Name "Icon" -Value "notepad.exe" -Force
                 New-Item -Path "$p\command" -Force | Out-Null
-                Set-ItemProperty -Path "$p\command" -Name "(Default)" -Value 'notepad.exe "%1"' -Force
+                Set-ItemProperty -LiteralPath "$p\command" -Name "(Default)" -Value 'notepad.exe "%1"' -Force
                 Write-GuiLog "Open with Notepad added."
             } "Adding Notepad menu..."
         }
@@ -27323,16 +27335,16 @@ $btnToggleRemovePrint = Get-Ctrl "btnToggleRemovePrint"
 if ($btnToggleRemovePrint) {
 $btnToggleRemovePrint.Add_Click({
         $p = "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print"
-        $exists = (Test-Path $p)
+        $exists = (Get-WmtRegistryPathExists -Path $p)
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Print removed from image context menu." } "Removing Print..."
+            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Print removed from image context menu." } "Removing Print..."
         }
         else {
             Invoke-UiCommand {
                 New-Item -Path $p -Force | Out-Null
-                Set-ItemProperty -Path $p -Name "(Default)" -Value "Print" -Force
+                Set-ItemProperty -LiteralPath $p -Name "(Default)" -Value "Print" -Force
                 New-Item -Path "$p\command" -Force | Out-Null
-                Set-ItemProperty -Path "$p\command" -Name "(Default)" -Value 'mspaint.exe /pt "%1"' -Force
+                Set-ItemProperty -LiteralPath "$p\command" -Name "(Default)" -Value 'mspaint.exe /pt "%1"' -Force
                 Write-GuiLog "Print restored to image context menu."
             } "Restoring Print..."
         }
@@ -27344,9 +27356,9 @@ $btnToggleRemoveCast = Get-Ctrl "btnToggleRemoveCast"
 if ($btnToggleRemoveCast) {
 $btnToggleRemoveCast.Add_Click({
         $p = "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice"
-        $exists = (Test-Path $p)
+        $exists = (Get-WmtRegistryPathExists -Path $p)
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Cast to Device removed." } "Removing Cast to Device..."
+            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Cast to Device removed." } "Removing Cast to Device..."
         }
         else {
             Invoke-UiCommand { New-Item -Path $p -Force | Out-Null; Write-GuiLog "Cast to Device restored." } "Restoring Cast to Device..."
@@ -41714,6 +41726,26 @@ try {
 } catch {}
 }
 
+function Sync-WmtTweakOverlayHide {
+# Coordinate the tweaks overlay visibility: only hide it when BOTH the tweak
+# states background job AND the optional features background check have
+# completed.  Updates the overlay subtitle so the user knows what's still loading.
+try {
+    $tweakStatesDone = $script:TweakStatesReady
+    $optFeaturesDone = $script:OptionalFeaturesReady
+    if ($tweakStatesDone -and $optFeaturesDone) {
+        Set-TweakStatesLoadingOverlay -Visible $false
+    }
+    elseif ($tweakStatesDone -and -not $optFeaturesDone) {
+        # Tweak toggle buttons are ready, but optional features (.NET, WSL, etc.)
+        # are still loading — update the subtitle to reflect this.
+        Set-TweakStatesLoadingOverlay -Visible $true
+        $sub = Get-Ctrl "txtTweakOverlaySubtitle"
+        if ($sub) { $sub.Text = "Tweak buttons loaded. Checking optional features (.NET, WSL, Hyper-V...)" }
+    }
+} catch {}
+}
+
 function Start-TweakButtonStatesBackgroundUpdate {
 # Pre-load ALL registry values in a background PowerShell job.
 # The job returns a hashtable of Path -> Get-ItemProperty result.
@@ -41856,14 +41888,15 @@ $ps = New-WmtPooledPowerShell
             param([string]$Path)
 
             if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-            if ($Path -like '*[*?]*') { return $false }
 
             try {
                 $parts = Convert-WmtRegistryPath -Path $Path
                 if (-not $parts) { return $false }
 
                 $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
-                $key = $baseKey.OpenSubKey($parts.SubPath)
+                # OpenSubKey default wildcardsAllowed=$false — literal '*'/'?' in
+                # subkey names are NOT expanded as globs. Prevents 0xCFFFFFFF hangs.
+                $key = $baseKey.OpenSubKey($parts.SubPath, $false)
                 $exists = $null -ne $key
                 if ($key) { $key.Close() }
                 if ($baseKey) { $baseKey.Close() }
@@ -41879,7 +41912,7 @@ $ps = New-WmtPooledPowerShell
             "HKCU:\Software\Classes\Directory\shell\WMT_TakeOwnership" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\shell\WMT_TakeOwnership"
             "HKCU:\Software\Classes\Directory\Background\shell\WMT_OpenPowerShell" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\Background\shell\WMT_OpenPowerShell"
             "HKCU:\Software\Classes\Directory\shell\WmtCmdHere" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\shell\WmtCmdHere"
-            "HKCU:\Software\Classes\*\shell\WmtNotepad" = (Test-Path "HKCU:\Software\Classes\*\shell\WmtNotepad")
+            "HKCU:\Software\Classes\*\shell\WmtNotepad" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\*\shell\WmtNotepad"
             "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print"
             "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice"
         }
@@ -41963,11 +41996,11 @@ $ps = New-WmtPooledPowerShell
 
         # Support-check Test-Path results
         $supportChecks = @{}
-        try { $supportChecks["3DObjects"] = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}" } catch { $supportChecks["3DObjects"] = $true }
-        try { $supportChecks["Chat"] = Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn" } catch { $supportChecks["Chat"] = $true }
+        try { $supportChecks["3DObjects"] = Get-WmtRegistryPathExists "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}" } catch { $supportChecks["3DObjects"] = $true }
+        try { $supportChecks["Chat"] = Get-WmtRegistryPathExists "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarMn" } catch { $supportChecks["Chat"] = $true }
         try { $supportChecks["Widgets"] = ($null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -ErrorAction SilentlyContinue)) } catch { $supportChecks["Widgets"] = $true }
-        try { $supportChecks["Activity"] = Test-Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory" } catch { $supportChecks["Activity"] = $true }
-        try { $supportChecks["CEIP"] = Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" } catch { $supportChecks["CEIP"] = $true }
+        try { $supportChecks["Activity"] = Get-WmtRegistryPathExists "HKLM:\SOFTWARE\Microsoft\PolicyManager\Default\ActivityHistory" } catch { $supportChecks["Activity"] = $true }
+        try { $supportChecks["CEIP"] = Get-WmtRegistryPathExists "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" } catch { $supportChecks["CEIP"] = $true }
         try { $supportChecks["Speech"] = ($null -ne (Get-ItemProperty "HKCU:\Software\Microsoft\Speech_OneSet" -Name "AcceptPrivacyNotice" -ErrorAction SilentlyContinue)) } catch { $supportChecks["Speech"] = $true }
 
         return @{ RegCache = $regCache; PathChecks = $pathChecks; NonRegData = $nonRegData; SupportChecks = $supportChecks }
@@ -41987,7 +42020,7 @@ if ($null -eq $async -or $async.IsFaulted) {
         try { Write-GuiLog "[Tweak States] Fallback synchronous load also failed: $($_.Exception.Message)" } catch {}
         Show-TweakStatesLoadError -Message "Background job failed to start and fallback also failed. Toggle states may be inaccurate. Error: $($_.Exception.Message)"
     }
-    Set-TweakStatesLoadingOverlay -Visible $false
+    Sync-WmtTweakOverlayHide
     return
 }
 
@@ -42019,15 +42052,15 @@ $script:TweakStatesBgTimer.Add_Tick({
                     $script:TweakSupportChecksCache = $result.SupportChecks
                     # Apply to buttons (instant – no registry I/O, reads from cache)
                     Update-TweakButtonStates
-                    # Cache is ready — hide loading overlay and mark complete
+                    # Cache is ready — coordinate overlay hide with optional features check
                     $script:TweakStatesReady = $true
-                    Set-TweakStatesLoadingOverlay -Visible $false
+                    Sync-WmtTweakOverlayHide
                 } else {
                     $typeInfo = if ($result) { $result.GetType().FullName } else { "null" }
                     try { Write-GuiLog "[Tweak States] Background preload returned unexpected type: $typeInfo" } catch {}
                     # Cache was not populated — buttons will use live registry reads as fallback
                     $script:TweakStatesReady = $true
-                    Set-TweakStatesLoadingOverlay -Visible $false
+                    Sync-WmtTweakOverlayHide
                     Show-TweakStatesLoadError -Message "Tweak state cache returned invalid data (type: $typeInfo). Buttons will use live registry reads as fallback, which may be slow."
                 }
             }
@@ -42035,7 +42068,7 @@ $script:TweakStatesBgTimer.Add_Tick({
                 # Pool was closed/disposed while job was queued — unrecoverable
                 try { Write-GuiLog "[Tweak States] Background load failed: Runspace pool was closed. Attempting synchronous fallback." } catch {}
                 $script:TweakStatesReady = $true
-                Set-TweakStatesLoadingOverlay -Visible $false
+                Sync-WmtTweakOverlayHide
                 try {
                     Update-TweakButtonStates
                 }
@@ -42046,7 +42079,7 @@ $script:TweakStatesBgTimer.Add_Tick({
             catch [System.Management.Automation.Runspaces.InvalidRunspaceStateException] {
                 try { Write-GuiLog "[Tweak States] Background load failed: Runspace was disposed." } catch {}
                 $script:TweakStatesReady = $true
-                Set-TweakStatesLoadingOverlay -Visible $false
+                Sync-WmtTweakOverlayHide
                 try { Update-TweakButtonStates } catch {
                     Show-TweakStatesLoadError -Message "Background job failed (runspace disposed) and fallback also failed: $($_.Exception.Message)"
                 }
@@ -42055,7 +42088,7 @@ $script:TweakStatesBgTimer.Add_Tick({
                 $errMsg = $_.Exception.Message
                 try { Write-GuiLog "[Tweak States] Background load failed: $errMsg" } catch {}
                 $script:TweakStatesReady = $true
-                Set-TweakStatesLoadingOverlay -Visible $false
+                Sync-WmtTweakOverlayHide
                 Show-TweakStatesLoadError -Message "Background tweak state load failed: $errMsg. Buttons will use live registry reads."
             }
             try { $script:TweakStatesBgPS.Dispose() } catch {}
@@ -42084,14 +42117,14 @@ $script:TweakStatesBgTimeout.Add_Tick({
             try {
                 Update-TweakButtonStates
                 $script:TweakStatesReady = $true
-                Set-TweakStatesLoadingOverlay -Visible $false
+                Sync-WmtTweakOverlayHide
                 Show-TweakStatesLoadError -Message "Tweak state loading timed out after 30 seconds (background job pool may be busy). Buttons may show default/incorrect states. Click Retry to try again."
             }
             catch {
                 $errMsg = $_.Exception.Message
                 try { Write-GuiLog "[Tweak States] Timeout fallback also failed: $errMsg" } catch {}
                 $script:TweakStatesReady = $true
-                Set-TweakStatesLoadingOverlay -Visible $false
+                Sync-WmtTweakOverlayHide
                 Show-TweakStatesLoadError -Message "Tweak state loading timed out and fallback failed: $errMsg. The page is still usable but toggle states may be inaccurate."
             }
         }
@@ -42213,6 +42246,9 @@ $script:FeaturesCheckTimer.Add_Tick({
             try { $script:FeaturesCheckPS.Dispose() } catch {}
             $script:FeaturesCheckAsync = $null
             $script:FeaturesCheckPS = $null
+            # Mark optional features as ready and coordinate overlay hide
+            $script:OptionalFeaturesReady = $true
+            Sync-WmtTweakOverlayHide
         }
     })
 $script:FeaturesCheckTimer.Start()
