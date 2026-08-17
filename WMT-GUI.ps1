@@ -1974,13 +1974,26 @@ if ($script:WmtBackgroundPool) {
 
 # Helper: create a [PowerShell] instance bound to the shared runspace pool.
 # This avoids the overhead of a standalone runspace per invocation (~5-15MB each).
-# Falls back to standalone if the pool is unavailable.
+# Falls back to standalone if the pool is unavailable or closed.
 function New-WmtPooledPowerShell {
 try {
     $pool = Get-WmtBackgroundRunspacePool
     if (-not $pool) { return [PowerShell]::Create() }
+    # Check if pool is still open — if it was disposed/closed, fall back to standalone
+    if ($pool.IsDisposed -or ($pool.RunspacePoolStateInfo -and $pool.RunspacePoolStateInfo.State -ne 'Opened')) {
+        try { Write-GuiLog "[RunspacePool] Pool is no longer open (state: $($pool.RunspacePoolStateInfo.State)). Falling back to standalone runspace." } catch {}
+        return [PowerShell]::Create()
+    }
     $ps = [PowerShell]::Create()
-    $ps.RunspacePool = $pool
+    try {
+        $ps.RunspacePool = $pool
+    }
+    catch {
+        # Pool may have been closed between the check above and the assignment
+        try { Write-GuiLog "[RunspacePool] Failed to assign pool to PowerShell: $($_.Exception.Message). Using standalone." } catch {}
+        $ps.Dispose()
+        return [PowerShell]::Create()
+    }
     return $ps
 }
 catch {
@@ -4727,8 +4740,15 @@ try {
     $script:TweakButtonStatesCache = $null
     $script:TweakNonRegDataCache = $null
     $script:TweakSupportChecksCache = $null
+    $script:TweakButtonStatesPathChecks = $null
     $script:TweakStatesReady = $false
     $script:TweakStatesBgStarted = $false
+    $script:TweakStatesUpdating = $false
+    # Dispose tweak states background job if still running
+    if ($script:TweakStatesBgPS) { try { $script:TweakStatesBgPS.Dispose() } catch {}; $script:TweakStatesBgPS = $null; $script:TweakStatesBgAsync = $null }
+    if ($script:TweakStatesBgTimer) { try { $script:TweakStatesBgTimer.Stop() } catch {}; $script:TweakStatesBgTimer = $null }
+    if ($script:TweakStatesBgTimeout) { try { $script:TweakStatesBgTimeout.Stop() } catch {}; $script:TweakStatesBgTimeout = $null }
+    if ($script:TweakStatesDebounceTimer) { try { $script:TweakStatesDebounceTimer.Stop() } catch {}; $script:TweakStatesDebounceTimer = $null }
 
     # Clear completed update ID tracking
     $script:WmtCompletedWindowsUpdateIds = $null
@@ -23601,8 +23621,10 @@ powercfg /S SCHEME_CURRENT | Out-Null
     <!-- Loading overlay OUTSIDE ScrollViewer so it covers the viewport, not scrollable content -->
     <Border Name="tweaksLoadingOverlay" Background="#CC000000" Visibility="Collapsed" Panel.ZIndex="999" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-            <TextBlock Text="Loading tweak states..." Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-            <TextBlock Text="Buttons will be ready in a moment" Foreground="#FFCCCCCC" FontSize="12" HorizontalAlignment="Center"/>
+            <TextBlock Name="txtTweakOverlayTitle" Text="Loading tweak states..." Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+            <TextBlock Name="txtTweakOverlaySubtitle" Text="Buttons will be ready in a moment" Foreground="#FFCCCCCC" FontSize="12" HorizontalAlignment="Center"/>
+            <TextBlock Name="txtTweakOverlayError" Text="" Foreground="#FF6666" FontSize="13" HorizontalAlignment="Center" Margin="0,12,0,0" TextWrapping="Wrap" MaxWidth="400" Visibility="Collapsed"/>
+            <Button Name="btnTweakOverlayRetry" Content="Retry" Visibility="Collapsed" Margin="0,16,0,0" Height="36" MinWidth="100" HorizontalAlignment="Center"/>
         </StackPanel>
     </Border>
     </Grid>
@@ -25268,6 +25290,9 @@ $script:TweakStatesDebounceTimer.Start()
 }
 
 function Update-TweakButtonStates {
+# Re-entry guard: prevent concurrent execution on UI thread (e.g. user clicks Tweaks tab rapidly)
+if ($script:TweakStatesUpdating) { return }
+$script:TweakStatesUpdating = $true
 try {
     $regCache = @{}
     # If we have a background-loaded cache, use it as $regCache directly.
@@ -25874,6 +25899,9 @@ try {
 catch {
     try { Write-GuiLog "[Tweak States] Warning: $($_.Exception.Message)" } catch {}
 }
+finally {
+    $script:TweakStatesUpdating = $false
+}
 }
 
 $btnPerfUltimatePower = Get-Ctrl "btnPerfUltimatePower"
@@ -26343,9 +26371,25 @@ $tabButton.Add_Click({
                 if (-not $script:TweakStatesReady) { Set-TweakStatesLoadingOverlay -Visible $true }
             }
             elseif (-not $script:TweakStatesReady) {
-                # Background jobs disabled — do a one-time synchronous load
-                Update-TweakButtonStates
-                $script:TweakStatesReady = $true
+                # Background jobs disabled — do a one-time synchronous load with error fallback
+                Set-TweakStatesLoadingOverlay -Visible $true
+                try {
+                    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                    Update-TweakButtonStates
+                    $sw.Stop()
+                    $script:TweakStatesReady = $true
+                    if ($sw.ElapsedMilliseconds -gt 3000) {
+                        try { Write-GuiLog "[Tweak States] Synchronous load completed slowly ($($sw.ElapsedMilliseconds)ms). Consider enabling background jobs in Settings." } catch {}
+                    }
+                }
+                catch {
+                    $errMsg = $_.Exception.Message
+                    try { Write-GuiLog "[Tweak States] ERROR: Failed to load tweak states: $errMsg" } catch {}
+                    $script:TweakStatesReady = $true
+                    # Show error on overlay briefly before hiding
+                    Show-TweakStatesLoadError -Message "Failed to load tweak states. Toggle buttons may show incorrect states. Click Retry or switch tabs and back. Error: $errMsg"
+                }
+                Set-TweakStatesLoadingOverlay -Visible $false
             }
         }
     })
@@ -41591,10 +41635,82 @@ Start-WmtSingleInstanceActivationListener
 $script:TweakStatesReady = $false
 
 function Set-TweakStatesLoadingOverlay {
-param([bool]$Visible)
+param([bool]$Visible, [string]$ErrorMessage = "")
 try {
     $overlay = Get-Ctrl "tweaksLoadingOverlay"
-    if ($overlay) { $overlay.Visibility = if ($Visible) { "Visible" } else { "Collapsed" } }
+    if ($overlay) {
+        $overlay.Visibility = if ($Visible) { "Visible" } else { "Collapsed" }
+        # Reset error state when showing overlay fresh, or restore error text
+        $errText = Get-Ctrl "txtTweakOverlayError"
+        $errTitle = Get-Ctrl "txtTweakOverlayTitle"
+        $errSubtitle = Get-Ctrl "txtTweakOverlaySubtitle"
+        $retryBtn = Get-Ctrl "btnTweakOverlayRetry"
+        if ($errText) {
+            if ($Visible -and [string]::IsNullOrWhiteSpace($ErrorMessage)) {
+                # Fresh loading state — reset to default
+                $errText.Text = ""
+                $errText.Visibility = "Collapsed"
+                if ($errTitle) { $errTitle.Text = "Loading tweak states..." }
+                if ($errSubtitle) { $errSubtitle.Text = "Buttons will be ready in a moment" }
+                if ($retryBtn) { $retryBtn.Visibility = "Collapsed" }
+            }
+            elseif ($Visible -and -not [string]::IsNullOrWhiteSpace($ErrorMessage)) {
+                # Error state
+                $errText.Text = $ErrorMessage
+                $errText.Visibility = "Visible"
+                if ($errTitle) { $errTitle.Text = "Failed to load tweak states" }
+                if ($errSubtitle) { $errSubtitle.Text = "Toggle buttons may display incorrect on/off states" }
+                if ($retryBtn) { $retryBtn.Visibility = "Visible" }
+            }
+        }
+    }
+} catch {}
+}
+
+function Show-TweakStatesLoadError {
+param([string]$Message)
+try {
+    Set-TweakStatesLoadingOverlay -Visible $true -ErrorMessage $Message
+    # Wire up retry button if not already done
+    $retryBtn = Get-Ctrl "btnTweakOverlayRetry"
+    if ($retryBtn -and -not $script:TweakOverlayRetryWired) {
+        $script:TweakOverlayRetryWired = $true
+        $retryBtn.Add_Click({
+            # Reset state so retry re-triggers the full load
+            $script:TweakStatesReady = $false
+            $script:TweakStatesBgStarted = $false
+            $script:TweakButtonStatesCache = $null
+            $script:TweakNonRegDataCache = $null
+            $script:TweakSupportChecksCache = $null
+            $script:TweakButtonStatesPathChecks = $null
+            Set-TweakStatesLoadingOverlay -Visible $false
+            # Re-trigger background load
+            if (-not (Get-WmtDisableBackgroundJobs)) {
+                Start-TweakButtonStatesBackgroundUpdate
+            }
+            else {
+                try {
+                    Update-TweakButtonStates
+                    $script:TweakStatesReady = $true
+                    Set-TweakStatesLoadingOverlay -Visible $false
+                }
+                catch {
+                    try { Write-GuiLog "[Tweak States] Retry also failed: $($_.Exception.Message)" } catch {}
+                    $script:TweakStatesReady = $true
+                    Show-TweakStatesLoadError -Message "Retry failed: $($_.Exception.Message). The Tweaks page is still usable but toggle states may be inaccurate."
+                }
+            }
+        })
+    }
+    # Auto-hide error overlay after 8 seconds so the page remains usable
+    if ($script:TweakOverlayAutoHideTimer) { try { $script:TweakOverlayAutoHideTimer.Stop() } catch {} }
+    $script:TweakOverlayAutoHideTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:TweakOverlayAutoHideTimer.Interval = [TimeSpan]::FromSeconds(8)
+    $script:TweakOverlayAutoHideTimer.Add_Tick({
+        $script:TweakOverlayAutoHideTimer.Stop()
+        Set-TweakStatesLoadingOverlay -Visible $false
+    })
+    $script:TweakOverlayAutoHideTimer.Start()
 } catch {}
 }
 
@@ -41859,6 +41975,22 @@ $ps = New-WmtPooledPowerShell
 
 $async = $ps.BeginInvoke()
 
+# Guard: if BeginInvoke itself fails (e.g. pool disposed / closed), fall back immediately
+if ($null -eq $async -or $async.IsFaulted) {
+    try { Write-GuiLog "[Tweak States] BeginInvoke failed (runspace pool may be closed). Falling back to synchronous load." } catch {}
+    try { $ps.Dispose() } catch {}
+    $script:TweakStatesReady = $true
+    try {
+        Update-TweakButtonStates
+    }
+    catch {
+        try { Write-GuiLog "[Tweak States] Fallback synchronous load also failed: $($_.Exception.Message)" } catch {}
+        Show-TweakStatesLoadError -Message "Background job failed to start and fallback also failed. Toggle states may be inaccurate. Error: $($_.Exception.Message)"
+    }
+    Set-TweakStatesLoadingOverlay -Visible $false
+    return
+}
+
 $script:TweakStatesBgAsync = $async
 $script:TweakStatesBgPS = $ps
 $script:TweakStatesBgTimer = New-Object System.Windows.Threading.DispatcherTimer
@@ -41885,19 +42017,46 @@ $script:TweakStatesBgTimer.Add_Tick({
                     $script:TweakButtonStatesPathChecks = $result.PathChecks
                     $script:TweakNonRegDataCache = $result.NonRegData
                     $script:TweakSupportChecksCache = $result.SupportChecks
+                    # Apply to buttons (instant – no registry I/O, reads from cache)
+                    Update-TweakButtonStates
+                    # Cache is ready — hide loading overlay and mark complete
+                    $script:TweakStatesReady = $true
+                    Set-TweakStatesLoadingOverlay -Visible $false
                 } else {
-                    try { Write-GuiLog "[Tweak States] Background preload returned unexpected type: $($result.GetType().FullName)" } catch {}
+                    $typeInfo = if ($result) { $result.GetType().FullName } else { "null" }
+                    try { Write-GuiLog "[Tweak States] Background preload returned unexpected type: $typeInfo" } catch {}
+                    # Cache was not populated — buttons will use live registry reads as fallback
+                    $script:TweakStatesReady = $true
+                    Set-TweakStatesLoadingOverlay -Visible $false
+                    Show-TweakStatesLoadError -Message "Tweak state cache returned invalid data (type: $typeInfo). Buttons will use live registry reads as fallback, which may be slow."
                 }
-                # Apply to buttons (instant – no registry I/O, reads from cache)
-                Update-TweakButtonStates
-                # Cache is ready — hide loading overlay and mark complete
+            }
+            catch [System.Management.Automation.Runspaces.InvalidRunspacePoolStateException] {
+                # Pool was closed/disposed while job was queued — unrecoverable
+                try { Write-GuiLog "[Tweak States] Background load failed: Runspace pool was closed. Attempting synchronous fallback." } catch {}
                 $script:TweakStatesReady = $true
                 Set-TweakStatesLoadingOverlay -Visible $false
+                try {
+                    Update-TweakButtonStates
+                }
+                catch {
+                    Show-TweakStatesLoadError -Message "Background job failed (pool closed) and fallback also failed: $($_.Exception.Message)"
+                }
+            }
+            catch [System.Management.Automation.Runspaces.InvalidRunspaceStateException] {
+                try { Write-GuiLog "[Tweak States] Background load failed: Runspace was disposed." } catch {}
+                $script:TweakStatesReady = $true
+                Set-TweakStatesLoadingOverlay -Visible $false
+                try { Update-TweakButtonStates } catch {
+                    Show-TweakStatesLoadError -Message "Background job failed (runspace disposed) and fallback also failed: $($_.Exception.Message)"
+                }
             }
             catch {
-                try { Write-GuiLog "[Tweak States] Background load failed: $($_.Exception.Message)" } catch {}
+                $errMsg = $_.Exception.Message
+                try { Write-GuiLog "[Tweak States] Background load failed: $errMsg" } catch {}
                 $script:TweakStatesReady = $true
                 Set-TweakStatesLoadingOverlay -Visible $false
+                Show-TweakStatesLoadError -Message "Background tweak state load failed: $errMsg. Buttons will use live registry reads."
             }
             try { $script:TweakStatesBgPS.Dispose() } catch {}
             $script:TweakStatesBgAsync = $null
@@ -41915,9 +42074,26 @@ $script:TweakStatesBgTimeout.Add_Tick({
         $script:TweakStatesBgTimeout.Stop()
         if (-not $script:TweakStatesReady) {
             try { Write-GuiLog "[Tweak States] Background preload timed out (pool may be busy). Showing buttons with default state." } catch {}
-            Set-TweakStatesLoadingOverlay -Visible $false
+            # Cancel the stuck background job to free the pool slot
+            try { if ($script:TweakStatesBgPS) { $script:TweakStatesBgPS.Stop() ; $script:TweakStatesBgPS.Dispose() } } catch {}
+            $script:TweakStatesBgAsync = $null
+            $script:TweakStatesBgPS = $null
+            # Stop polling timer too
+            try { if ($script:TweakStatesBgTimer) { $script:TweakStatesBgTimer.Stop() } } catch {}
             # Apply whatever cache we have (may be empty) so buttons aren't stuck
-            Update-TweakButtonStates
+            try {
+                Update-TweakButtonStates
+                $script:TweakStatesReady = $true
+                Set-TweakStatesLoadingOverlay -Visible $false
+                Show-TweakStatesLoadError -Message "Tweak state loading timed out after 30 seconds (background job pool may be busy). Buttons may show default/incorrect states. Click Retry to try again."
+            }
+            catch {
+                $errMsg = $_.Exception.Message
+                try { Write-GuiLog "[Tweak States] Timeout fallback also failed: $errMsg" } catch {}
+                $script:TweakStatesReady = $true
+                Set-TweakStatesLoadingOverlay -Visible $false
+                Show-TweakStatesLoadError -Message "Tweak state loading timed out and fallback failed: $errMsg. The page is still usable but toggle states may be inaccurate."
+            }
         }
     })
 $script:TweakStatesBgTimeout.Start()
