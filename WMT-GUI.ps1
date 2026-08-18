@@ -29254,6 +29254,10 @@ $lstWinget.Add_PreviewMouseRightButtonDown({
         Set-WmtListViewRightClickSelection -ListView $s -OriginalSource $e.OriginalSource
     })
 
+$lstWinget.Add_ContextMenuOpening({
+    if ($s.SelectedItems.Count -eq 0) { $_.Handled = $true }
+})
+
 $lstWinget.Add_PreviewKeyDown({
         param($s, $e)
         try {
@@ -39565,6 +39569,15 @@ $mniCopyAll.Add_Click({
 [void]$fwCtxMenu.Items.Add($mniCopyPort)
 [void]$fwCtxMenu.Items.Add((New-Object System.Windows.Controls.Separator))
 [void]$fwCtxMenu.Items.Add($mniCopyAll)
+
+# Attach to the ListView
+# Prevent context menu from opening when right-clicking empty space, headers, or scrollbars
+$lstFw.Add_PreviewMouseRightButtonDown({
+    try { Set-WmtListViewRightClickSelection -ListView $lstFw -OriginalSource $_.OriginalSource } catch {}
+})
+$lstFw.Add_ContextMenuOpening({
+    if ($lstFw.SelectedItems.Count -eq 0) { $_.Handled = $true }
+})
 
 # Attach to the ListView
 $lstFw.ContextMenu = $fwCtxMenu
