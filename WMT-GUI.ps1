@@ -7219,7 +7219,8 @@ return $false
 function Test-WmtCleanerMlPathEvidence {
 param(
     [string]$Path,
-    [string]$Search = "file"
+    [string]$Search = "file",
+    [string]$Command = ""
 )
 
 if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
@@ -7228,19 +7229,25 @@ $expandedPath = [Environment]::ExpandEnvironmentVariables($Path) -replace '/', '
 if (-not (Test-WmtCleanerMlWindowsPath $expandedPath)) { return $false }
 
 try {
-    if ($expandedPath -match '[\*\?]') {
-        # For wildcard paths, only accept actual glob matches as evidence
-        if (Test-Path -Path $expandedPath -ErrorAction SilentlyContinue) { return $true }
+    if ($expandedPath -match '[\*\?\[]') {
+        # For wildcard paths, only accept actual glob matches as evidence.
+        # Escape literal brackets so Test-Path treats [ and ] as characters,
+        # not as wildcard character-class delimiters (e.g. "Program Files [x86]").
+        $testPath = $expandedPath -replace '\[', '`[' -replace '\]', '`]'
+        if (Test-Path -Path $testPath -ErrorAction SilentlyContinue) { return $true }
         return $false
     }
-
     if (Test-Path -LiteralPath $expandedPath -ErrorAction SilentlyContinue) { return $true }
 
-    # Walk and deep searches target directories — accept parent directory existence
+    # Walk and deep searches: require the parent directory to exist AND
+    # the parent's parent to NOT be a generic root (e.g. %LocalAppData%).
+    # This prevents showing rules for apps that don't exist but whose
+    # parent folder (like LocalAppData) happens to contain many subdirs.
     if ($Search -in @("walk.files", "walk.all", "walk.top", "deep")) {
         $parent = [System.IO.Path]::GetDirectoryName($expandedPath)
         if (-not [string]::IsNullOrWhiteSpace($parent) -and
             -not (Test-WmtCleanerMlGenericEvidenceRoot -Path $parent) -and
+            -not (Test-WmtCleanerMlGenericEvidenceRoot -Path ([System.IO.Path]::GetDirectoryName($parent))) -and
             (Test-Path -LiteralPath $parent -ErrorAction SilentlyContinue)) {
             return $true
         }
@@ -7472,15 +7479,16 @@ finally {
 function Get-WmtCleanerMlSection {
 param([string]$CleanerName)
 
-if ($CleanerName -match "(?i)\b(Chrome|Chromium|Edge|Firefox|Brave|Opera|Internet Explorer|SeaMonkey|Waterfox|LibreWolf|Vivaldi|Zen|Iridium|Pale Moon|Comodo IceDragon)\b") { return "Browsers / Internet" }
-if ($CleanerName -match "(?i)\b(Discord|Pidgin|Skype|Telegram|Signal|HexChat|Thunderbird|FileZilla|Trillian|ooVoo|Yahoo Messenger|Jitsi)\b") { return "Internet & Chat" }
-if ($CleanerName -match "(?i)\b(Office|LibreOffice|Adobe|GIMP|Paint|Audacity|HandBrake|VLC|Java|Claude|Notepad\+\+|SourceTree|Visual Studio|NetBeans|Infranview|XnView|IrfanView|Calibre)\b") { return "Productivity" }
-if ($CleanerName -match "(?i)\b(Deep scan|System|Windows|Explorer|Thumbnails|Localizations|Recycle Bin|Windows Defender|Windows Update|Windows Media Player)\b") { return "System" }
-if ($CleanerName -match "(?i)\b(Game|Steam|Epic Games|Minecraft|Roblox|Nexuiz|Warzone|Poker|Heroes of the Storm|Simutrans|World of Goo|Xonotic|Hedgewars|Voxelands)\b") { return "Games" }
-if ($CleanerName -match "(?i)\b(Spotify|iTunes|foobar|Music|Amarok|Clementine)\b") { return "Internet & Chat" }
-if ($CleanerName -match "(?i)\b(Tor|I2P|Vpn|VPN)\b") { return "System" }
-if ($CleanerName -match "(?i)\b(VirtualBox|Virtual Machine|QEMU|Wine|PlayOnLinux)\b") { return "System" }
-if ($CleanerName -match "(?i)\b(Chocolatey|npm|pip|Ruby|Composer|dotnet|Python)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(Chrome|Chromium|Edge|Firefox|Brave|Opera|Internet Explorer|SeaMonkey|Waterfox|LibreWolf|Vivaldi|Zen|Iridium|Pale Moon|Comodo IceDragon|Midori|Abrowser|IceCat)\b") { return "Browsers / Internet" }
+if ($CleanerName -match "(?i)\b(Discord|Pidgin|Skype|Telegram|Signal|HexChat|Thunderbird|FileZilla|Trillian|ooVoo|Yahoo Messenger|Jitsi|Empathy)\b") { return "Internet & Chat" }
+if ($CleanerName -match "(?i)\b(Office|LibreOffice|Adobe|GIMP|Paint|Audacity|HandBrake|VLC|Java|Claude|Notepad\+\+|SourceTree|Visual Studio|NetBeans|Infranview|XnView|IrfanView|Calibre|Inkscape|Blender|Krita|OBS|Shotcut|Openshot)\b") { return "Productivity" }
+if ($CleanerName -match "(?i)\b(Deep scan|System|Windows|Explorer|Thumbnails|Localizations|Recycle Bin|Windows Defender|Windows Update|Windows Media Player|Logs|Cache|Temporary|Memory Dump|Error Reporting)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(Game|Steam|Epic Games|Minecraft|Roblox|Nexuiz|Warzone|Poker|Heroes of the Storm|Simutrans|World of Goo|Xonotic|Hedgewars|Voxelands|Wesnoth|Minetest|XMoto|Hots)\b") { return "Games" }
+if ($CleanerName -match "(?i)\b(Spotify|iTunes|foobar|Music|Amarok|Clementine|Rhythmbox|QuickTime)\b") { return "Internet & Chat" }
+if ($CleanerName -match "(?i)\b(Tor|I2P|Vpn|VPN|Virt-manager)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(VirtualBox|Virtual Machine|QEMU|Wine|PlayOnLinux|VirtualDub)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(Chocolatey|npm|pip|Ruby|Composer|dotnet|Python|MySQL)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(7-Zip|7zip|WinRAR|PeaZip|StuffIt)\b") { return "System" }
 return "Applications"
 }
 
@@ -7552,10 +7560,87 @@ foreach ($option in @($cleaner.option)) {
     $optionWarning = Get-WmtXmlInnerText -Node $option -Name "warning"
     $paths = New-Object System.Collections.Generic.List[object]
 
+    $processActions = New-Object System.Collections.Generic.List[object]
     foreach ($action in @($option.action)) {
-        if ([string]$action.command -ne "delete") { continue }
         if (-not (Test-WmtCleanerMlOs $action)) { continue }
+        $cmd = if ($action.command) { [string]$action.command } else { "delete" }
 
+        # --- process command: external command execution (e.g. net stop, dism) ---
+        if ($cmd -eq "process") {
+            $actionCmd = if ($action.cmd) { [string]$action.cmd } else { "" }
+            $actionWait = if ($action.wait) { [string]$action.wait -ne "false" } else { $false }
+            if (-not [string]::IsNullOrWhiteSpace($actionCmd)) {
+                [void]$processActions.Add([PSCustomObject]@{
+                        Command = "process"
+                        Cmd     = $actionCmd
+                        Wait    = $actionWait
+                    })
+            }
+            continue
+        }
+
+        # --- winreg command: registry key deletion ---
+        if ($cmd -eq "winreg") {
+            $regPath = if ($action.path) { [string]$action.path } else { "" }
+            foreach ($expandedPath in (Expand-WmtCleanerMlPathVariants -Path $regPath -Variables $variables)) {
+                if (-not [string]::IsNullOrWhiteSpace($expandedPath)) {
+                    [void]$paths.Add([PSCustomObject]@{
+                            Command = "winreg"
+                            Path    = $expandedPath
+                            Search  = ""
+                            Regex   = ""
+                            WholeRegex  = ""
+                            NRegex      = ""
+                            NWholeRegex = ""
+                            Type    = ""
+                        })
+                }
+            }
+            continue
+        }
+
+        # --- truncate command: zero-out files instead of deleting ---
+        if ($cmd -eq "truncate") {
+            $search = if ($action.search) { [string]$action.search } else { "file" }
+            if ($search -notin @("file", "glob", "walk.files", "walk.all")) { continue }
+            $rawPath = if ($action.path) { [string]$action.path } else { "" }
+            foreach ($expandedPath in (Expand-WmtCleanerMlPathVariants -Path $rawPath -Variables $variables)) {
+                if (-not (Test-WmtCleanerMlWindowsPath $expandedPath)) { continue }
+                [void]$paths.Add([PSCustomObject]@{
+                        Command     = "truncate"
+                        Path        = $expandedPath
+                        Search      = $search
+                        Regex       = if ($action.regex) { [string]$action.regex } else { "" }
+                        WholeRegex  = if ($action.wholeregex) { [string]$action.wholeregex } else { "" }
+                        NRegex      = if ($action.nregex) { [string]$action.nregex } else { "" }
+                        NWholeRegex = if ($action.nwholeregex) { [string]$action.nwholeregex } else { "" }
+                        Type        = if ($action.type) { [string]$action.type } elseif ($search -eq "file") { "f" } else { "" }
+                    })
+            }
+            continue
+        }
+
+        # --- sqlite.vacuum command: VACUUM SQLite databases ---
+        if ($cmd -eq "sqlite.vacuum") {
+            $rawPath = if ($action.path) { [string]$action.path } else { "" }
+            foreach ($expandedPath in (Expand-WmtCleanerMlPathVariants -Path $rawPath -Variables $variables)) {
+                if (-not (Test-WmtCleanerMlWindowsPath $expandedPath)) { continue }
+                [void]$paths.Add([PSCustomObject]@{
+                        Command = "sqlite.vacuum"
+                        Path    = $expandedPath
+                        Search  = "file"
+                        Regex   = ""
+                        WholeRegex  = ""
+                        NRegex      = ""
+                        NWholeRegex = ""
+                        Type    = "f"
+                    })
+            }
+            continue
+        }
+
+        # --- delete command (default/original behavior) ---
+        if ($cmd -ne "delete") { continue }
         $search = if ($action.search) { [string]$action.search } else { "file" }
         if ($search -notin @("file", "glob", "walk.files", "walk.all", "walk.top", "deep")) { continue }
 
@@ -7563,6 +7648,7 @@ foreach ($option in @($cleaner.option)) {
         foreach ($expandedPath in (Expand-WmtCleanerMlPathVariants -Path $rawPath -Variables $variables)) {
             if (-not (Test-WmtCleanerMlWindowsPath $expandedPath)) { continue }
             [void]$paths.Add([PSCustomObject]@{
+                    Command     = "delete"
                     Path        = $expandedPath
                     Search      = $search
                     Regex       = if ($action.regex) { [string]$action.regex } else { "" }
@@ -7574,26 +7660,38 @@ foreach ($option in @($cleaner.option)) {
         }
     }
 
+    # Collect process names from <processname> elements for process guarding
+    $processNames = @($cleaner.processname | ForEach-Object { [string]$_ }) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
     $hasCleanerMlEvidence = $false
+    $hasNonPathActions = ($processActions.Count -gt 0)
     foreach ($pathRule in @($paths.ToArray())) {
-        if (Test-WmtCleanerMlPathEvidence -Path ([string]$pathRule.Path) -Search ([string]$pathRule.Search)) {
+        $ruleCmd = [string]$pathRule.Command
+        # winreg and sqlite.vacuum rules do not require path evidence
+        if ($ruleCmd -in @("winreg", "sqlite.vacuum")) {
+            $hasCleanerMlEvidence = $true
+            break
+        }
+        if (Test-WmtCleanerMlPathEvidence -Path ([string]$pathRule.Path) -Search ([string]$pathRule.Search) -Command $ruleCmd) {
             $hasCleanerMlEvidence = $true
             break
         }
     }
 
-    if ($paths.Count -gt 0 -and $hasCleanerMlEvidence) {
+    if (($paths.Count -gt 0 -and $hasCleanerMlEvidence) -or $hasNonPathActions) {
         $safeId = ("CleanerML_{0}_{1}" -f $cleanerId, $optionId) -replace '[^a-zA-Z0-9_]', ''
         [void]$rules.Add([PSCustomObject]@{
-                Name        = "$cleanerName - $optionName"
-                ID          = $safeId
-                Section     = Get-WmtCleanerMlSection -CleanerName $cleanerName
-                AppGroup    = $cleanerName
-                Paths       = @($paths.ToArray())
-                Desc        = (@($cleanerDesc, $optionDesc, $optionWarning) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " "
-                IsInternal  = $false
-                IsCleanerML = $true
-                Source      = "CleanerML"
+                Name         = "$cleanerName - $optionName"
+                ID           = $safeId
+                Section      = Get-WmtCleanerMlSection -CleanerName $cleanerName
+                AppGroup     = $cleanerName
+                Paths        = @($paths.ToArray())
+                ProcessActions = @($processActions.ToArray())
+                ProcessNames = @($processNames)
+                Desc         = (@($cleanerDesc, $optionDesc, $optionWarning) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " "
+                IsInternal   = $false
+                IsCleanerML  = $true
+                Source       = "CleanerML"
             })
     }
 }
@@ -7923,10 +8021,11 @@ foreach ($line in $lines) {
         }
         # Registry Detection
         elseif ($val -match "^HK") {
-            $regPath = $val -replace "^(?i)HKCU", "Registry::HKEY_CURRENT_USER" `
-                -replace "^(?i)HKLM", "Registry::HKEY_LOCAL_MACHINE" `
-                -replace "^(?i)HKCR", "Registry::HKEY_CLASSES_ROOT" `
-                -replace "^(?i)HKU", "Registry::HKEY_USERS"
+            $regPath = $val
+            $regPath = $regPath -replace "^(?i)HKCU", "Registry::HKEY_CURRENT_USER"
+            $regPath = $regPath -replace "^(?i)HKLM", "Registry::HKEY_LOCAL_MACHINE"
+            $regPath = $regPath -replace "^(?i)HKCR", "Registry::HKEY_CLASSES_ROOT"
+            $regPath = $regPath -replace "^(?i)HKU", "Registry::HKEY_USERS"
             if (Test-Path $regPath) { $skipApp = $false }
         }
         # File Detection
@@ -8213,10 +8312,11 @@ foreach ($line in $lines) {
             if ($osMatch) { $skipApp = $false }
         }
         elseif ($val -match "^HK") {
-            $regPath = $val -replace "^(?i)HKCU", "Registry::HKEY_CURRENT_USER" `
-                -replace "^(?i)HKLM", "Registry::HKEY_LOCAL_MACHINE" `
-                -replace "^(?i)HKCR", "Registry::HKEY_CLASSES_ROOT" `
-                -replace "^(?i)HKU", "Registry::HKEY_USERS"
+            $regPath = $val
+            $regPath = $regPath -replace "^(?i)HKCU", "Registry::HKEY_CURRENT_USER"
+            $regPath = $regPath -replace "^(?i)HKLM", "Registry::HKEY_LOCAL_MACHINE"
+            $regPath = $regPath -replace "^(?i)HKCR", "Registry::HKEY_CLASSES_ROOT"
+            $regPath = $regPath -replace "^(?i)HKU", "Registry::HKEY_USERS"
             if (Test-Path $regPath) { $skipApp = $false }
         }
         else {
@@ -10013,6 +10113,12 @@ function Get-CleanerMlScanTargets {
     if ([string]::IsNullOrWhiteSpace($path)) { return @() }
 
     $search = if ($Rule.Search) { [string]$Rule.Search } else { "file" }
+
+    # For deep scans, offload to background runspace to avoid GUI freeze
+    if ($search -eq "deep" -and -not [string]::IsNullOrWhiteSpace($ProgressLabel)) {
+        return Get-CleanerMlDeepScanTargetsParallel -Rule $Rule -ProgressLabel $ProgressLabel
+    }
+
     $targets = New-Object System.Collections.Generic.List[System.IO.FileSystemInfo]
 
     try {
@@ -10093,6 +10199,99 @@ function Get-CleanerMlScanTargets {
     return @($targets.ToArray() | Sort-Object FullName -Unique)
 }
 
+function Get-CleanerMlDeepScanTargetsParallel {
+    param(
+        $Rule,
+        [string]$ProgressLabel
+    )
+
+    $path = [Environment]::ExpandEnvironmentVariables([string]$Rule.Path)
+    if ([string]::IsNullOrWhiteSpace($path)) { return @() }
+    $ruleRegex = [string]$Rule.Regex
+    $ruleWholeRegex = [string]$Rule.WholeRegex
+    $ruleNRegex = [string]$Rule.NRegex
+    $ruleNWholeRegex = [string]$Rule.NWholeRegex
+    $ruleType = [string]$Rule.Type
+    $regexOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+
+    try {
+        $scriptBlock = {
+            param($ScanPath, $Regex, $WholeRegex, $NRegex, $NWholeRegex, $Type, $RegexOpts)
+
+            $results = New-Object System.Collections.Generic.List[string]
+            if (-not (Test-Path -LiteralPath $ScanPath)) { return @($results.ToArray()) }
+            $root = Get-Item -LiteralPath $ScanPath -Force -ErrorAction SilentlyContinue
+            if (-not $root) { return @($results.ToArray()) }
+
+            if (-not $root.PSIsContainer) {
+                $leaf = $root.Name
+                $full = $root.FullName
+                $ok = $true
+                try {
+                    if ($Regex -and -not [regex]::IsMatch($leaf, $Regex, $RegexOpts)) { $ok = $false }
+                    if ($WholeRegex -and -not [regex]::IsMatch($full, $WholeRegex, $RegexOpts)) { $ok = $false }
+                    if ($NRegex -and [regex]::IsMatch($leaf, $NRegex, $RegexOpts)) { $ok = $false }
+                    if ($NWholeRegex -and [regex]::IsMatch($full, $NWholeRegex, $RegexOpts)) { $ok = $false }
+                    if ($Type -eq "f" -and $root.PSIsContainer) { $ok = $false }
+                    if ($Type -eq "d" -and -not $root.PSIsContainer) { $ok = $false }
+                }
+                catch { $ok = $false }
+                if ($ok) { [void]$results.Add($full) }
+                return @($results.ToArray())
+            }
+
+            Get-ChildItem -LiteralPath $root.FullName -Recurse -Force -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $leaf = $_.Name
+                $full = $_.FullName
+                $ok = $true
+                try {
+                    if ($Regex -and -not [regex]::IsMatch($leaf, $Regex, $RegexOpts)) { $ok = $false }
+                    if ($WholeRegex -and -not [regex]::IsMatch($full, $WholeRegex, $RegexOpts)) { $ok = $false }
+                    if ($NRegex -and [regex]::IsMatch($leaf, $NRegex, $RegexOpts)) { $ok = $false }
+                    if ($NWholeRegex -and [regex]::IsMatch($full, $NWholeRegex, $RegexOpts)) { $ok = $false }
+                    if ($Type -eq "f" -and $_.PSIsContainer) { $ok = $false }
+                    if ($Type -eq "d" -and -not $_.PSIsContainer) { $ok = $false }
+                }
+                catch { $ok = $false }
+                if ($ok) { [void]$results.Add($full) }
+            }
+            return @($results.ToArray())
+        }
+
+        $pool = Get-WmtBackgroundRunspacePool
+        $ps = [System.Management.Automation.PowerShell]::Create()
+        if ($pool -and -not $pool.IsDisposed) {
+            try { $ps.RunspacePool = $pool } catch {}
+        }
+        [void]$ps.AddScript($scriptBlock).AddArgument($path).AddArgument($ruleRegex).AddArgument($ruleWholeRegex).AddArgument($ruleNRegex).AddArgument($ruleNWholeRegex).AddArgument($ruleType).AddArgument($regexOptions)
+
+        $asyncResult = $ps.BeginInvoke()
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not $asyncResult.AsyncWaitHandle.WaitOne(200)) {
+            if ($ProgressCallback) { & $ProgressCallback "$ProgressLabel ($([int]$sw.Elapsed.TotalSeconds)s)" }
+            elseif ($pStatus -and -not $progressState.Closed) {
+                try {
+                    $pStatus.Dispatcher.Invoke([Action]{ $pStatus.Text = "$ProgressLabel ($([int]$sw.Elapsed.TotalSeconds)s)" }, [System.Windows.Threading.DispatcherPriority]::Background)
+                } catch {}
+            }
+        }
+        $filePaths = $ps.EndInvoke($asyncResult)
+        $ps.Dispose()
+
+        $targets = New-Object System.Collections.Generic.List[System.IO.FileSystemInfo]
+        foreach ($fp in @($filePaths)) {
+            $item = Get-Item -LiteralPath $fp -Force -ErrorAction SilentlyContinue
+            if ($item) { [void]$targets.Add($item) }
+        }
+        return @($targets.ToArray())
+    }
+    catch {
+        if ($script:WmtDebug) { Write-GuiLog "Deep scan parallel error: $($_.Exception.Message)" }
+        return @()
+    }
+}
+
 function Invoke-CleanerMlClean {
     param(
         $Rule,
@@ -10110,6 +10309,190 @@ function Invoke-CleanerMlClean {
     foreach ($target in (Get-CleanerMlScanTargets -Rule $Rule -ProgressLabel $progressLabel)) {
         Add-WmtCleanupTarget -Path $target.FullName -RuleName $RuleName
     }
+}
+
+function Invoke-CleanerMlTruncate {
+    param(
+        $Rule,
+        [string]$RuleName
+    )
+
+    foreach ($target in (Get-CleanerMlScanTargets -Rule $Rule)) {
+        if ($target.PSIsContainer) { continue }
+        try {
+            $size = $target.Length
+            [System.IO.File]::SetAttributes($target.FullName, [System.IO.FileAttributes]::Normal)
+            [System.IO.File]::WriteAllText($target.FullName, [string]::Empty)
+            if ($isAnalyze) {
+                $protectionInfo = Get-WmtCleanupProtectionInfo -Path $target.FullName -ItemInfo $target
+                $previewList.Add([PSCustomObject]@{
+                        RuleName         = $RuleName
+                        FilePath         = $target.FullName
+                        RawBytes         = $size
+                        IsProtected      = [bool]$protectionInfo.IsProtected
+                        ProtectionReason = [string]$protectionInfo.Reason
+                    })
+            }
+            $stats.Deleted++
+            $stats.Bytes += $size
+        }
+        catch { if ($script:WmtDebug) { Write-GuiLog "Truncate error ($($target.FullName)): $($_.Exception.Message)" } }
+    }
+}
+
+function Invoke-CleanerMlSqliteVacuum {
+    param(
+        $Rule,
+        [string]$RuleName
+    )
+
+    foreach ($target in (Get-CleanerMlScanTargets -Rule $Rule)) {
+        if ($target.PSIsContainer) { continue }
+        if ($target.Extension -ne ".db" -and $target.Extension -ne ".sqlite" -and
+            $target.Extension -ne ".sqlite3" -and $target.Name -notmatch '\.db$') { continue }
+        try {
+            $size = $target.Length
+            if (-not $isAnalyze) {
+                $vacuumSucceeded = $false
+                try {
+                    Add-Type -Path (Join-Path ([System.AppDomain]::CurrentDomain.BaseDirectory) "System.Data.SQLite.dll") -ErrorAction Stop
+                    $sqliteConn = New-Object System.Data.SQLite.SQLiteConnection
+                    $sqliteConn.ConnectionString = "Data Source=$($target.FullName);Version=3;"
+                    $sqliteConn.Open()
+                    $vacuumCmd = $sqliteConn.CreateCommand()
+                    $vacuumCmd.CommandText = "VACUUM;"
+                    $vacuumCmd.CommandTimeout = 300
+                    [void]$vacuumCmd.ExecuteNonQuery()
+                    $sqliteConn.Close()
+                    $vacuumSucceeded = $true
+                }
+                catch {
+                    try {
+                        $sqlite3Exe = Get-Command "sqlite3.exe" -ErrorAction SilentlyContinue
+                        if ($sqlite3Exe) {
+                            $proc = Start-Process -FilePath $sqlite3Exe.Source -ArgumentList @($target.FullName, "VACUUM;") -NoNewWindow -Wait -PassThru -ErrorAction Stop
+                            if ($proc.ExitCode -eq 0) { $vacuumSucceeded = $true }
+                        }
+                    }
+                    catch { if ($script:WmtDebug) { Write-GuiLog "SQLite VACUUM failed ($($target.FullName)): $($_.Exception.Message)" } }
+                }
+                if ($vacuumSucceeded) {
+                    $newSize = (Get-Item -LiteralPath $target.FullName -Force -ErrorAction SilentlyContinue).Length
+                    $recovered = [Math]::Max(0, $size - $newSize)
+                    $stats.Deleted++
+                    $stats.Bytes += $recovered
+                }
+            }
+            else {
+                $protectionInfo = Get-WmtCleanupProtectionInfo -Path $target.FullName -ItemInfo $target
+                $previewList.Add([PSCustomObject]@{
+                        RuleName         = $RuleName
+                        FilePath         = $target.FullName
+                        RawBytes         = $size
+                        IsProtected      = [bool]$protectionInfo.IsProtected
+                        ProtectionReason = [string]$protectionInfo.Reason
+                    })
+                $stats.Deleted++
+                $stats.Bytes += $size
+            }
+        }
+        catch { if ($script:WmtDebug) { Write-GuiLog "SQLite vacuum error ($($target.FullName)): $($_.Exception.Message)" } }
+    }
+}
+
+function Invoke-CleanerMlWinreg {
+    param(
+        $Rule,
+        [string]$RuleName
+    )
+
+    $regPath = [string]$Rule.Path
+    if ([string]::IsNullOrWhiteSpace($regPath)) { return }
+    $regPath = [Environment]::ExpandEnvironmentVariables($regPath) -replace '/', '\\'
+
+    if ($regPath -notmatch '^(HKEY_|Registry::)') {
+        if ($regPath -match '^(HKLM|HKCU|HKCR|HKU|HKCC)\\') {
+            $regPath = "Registry::$regPath"
+        }
+        else { return }
+    }
+
+    try {
+        if (Test-Path -LiteralPath $regPath -ErrorAction SilentlyContinue) {
+            if (-not $isAnalyze) {
+                Remove-Item -LiteralPath $regPath -Recurse -Force -ErrorAction Stop
+                Write-GuiLog "CleanerML winreg: removed $regPath"
+                $stats.Deleted++
+            }
+            else {
+                $previewList.Add([PSCustomObject]@{
+                        RuleName         = $RuleName
+                        FilePath         = $regPath
+                        RawBytes         = 0
+                        IsProtected      = $false
+                        ProtectionReason = "Registry key"
+                    })
+                $stats.Deleted++
+            }
+        }
+    }
+    catch { if ($script:WmtDebug) { Write-GuiLog "Winreg error ($regPath): $($_.Exception.Message)" } }
+}
+
+function Invoke-CleanerMlProcess {
+    param(
+        $Action,
+        [string]$RuleName
+    )
+
+    $cmd = [string]$Action.Cmd
+    $wait = [bool]$Action.Wait
+    if ([string]::IsNullOrWhiteSpace($cmd)) { return }
+
+    try {
+        Write-GuiLog "CleanerML process ($RuleName): $cmd"
+        if ($isAnalyze) {
+            $previewList.Add([PSCustomObject]@{
+                    RuleName         = $RuleName
+                    FilePath         = "[process] $cmd"
+                    RawBytes         = 0
+                    IsProtected      = $false
+                    ProtectionReason = "External command"
+                })
+            $stats.Deleted++
+            return
+        }
+
+        if ($wait) {
+            $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -NoNewWindow -Wait -PassThru -ErrorAction Stop
+            if ($proc.ExitCode -ne 0) {
+                Write-GuiLog "CleanerML process warning: exit code $($proc.ExitCode) for: $cmd"
+            }
+        }
+        else {
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -NoNewWindow -ErrorAction Stop
+        }
+        $stats.Deleted++
+    }
+    catch { if ($script:WmtDebug) { Write-GuiLog "Process action error ($cmd): $($_.Exception.Message)" } }
+}
+
+function Test-WmtCleanerMlProcessGuard {
+    param(
+        [string[]]$ProcessNames,
+        [string]$CleanerName
+    )
+
+    if (-not $ProcessNames -or $ProcessNames.Count -eq 0) { return $false }
+
+    foreach ($procName in $ProcessNames) {
+        $running = Get-Process -Name $procName -ErrorAction SilentlyContinue
+        if ($running) {
+            Write-GuiLog "Skipping $($CleanerName): process '$procName' is currently running."
+            return $true
+        }
+    }
+    return $false
 }
 
 function Invoke-ThumbsDbDeepScan {
@@ -10218,11 +10601,28 @@ function New-WmtAnalyzeScanTasks {
 
         if (Test-WmtCleanupObjectFlag -InputObject $item -Name "IsCleanerML") {
             foreach ($rule in $itemPaths) {
+                $ruleCmd = [string](Get-WmtCleanupObjectValue -InputObject $rule -Name "Command" -Default "delete")
                 $path = ([string](Get-WmtCleanupObjectValue -InputObject $rule -Name "Path" -Default "")).Trim()
+                if ($ruleCmd -in @("winreg", "process") -and [string]::IsNullOrWhiteSpace($path)) {
+                    [void]$tasks.Add([PSCustomObject]@{
+                            Engine   = "CleanerML"
+                            RuleName = $itemName
+                            Command  = $ruleCmd
+                            Path     = if ($ruleCmd -eq "process") { "[process] $([string](Get-WmtCleanupObjectValue -InputObject $rule -Name 'Cmd' -Default ''))" } else { $path }
+                            Search   = ""
+                            Regex    = ""
+                            WholeRegex  = ""
+                            NRegex      = ""
+                            NWholeRegex = ""
+                            Type     = ""
+                        })
+                    continue
+                }
                 if ([string]::IsNullOrWhiteSpace($path)) { continue }
                 [void]$tasks.Add([PSCustomObject]@{
                         Engine      = "CleanerML"
                         RuleName    = $itemName
+                        Command     = $ruleCmd
                         Path        = $path
                         Search      = [string](Get-WmtCleanupObjectValue -InputObject $rule -Name "Search" -Default "file")
                         Regex       = [string](Get-WmtCleanupObjectValue -InputObject $rule -Name "Regex" -Default "")
@@ -10738,8 +11138,28 @@ try {
 
             # --- A. BLEACHBIT CLEANERML RULES ---
             if (Test-WmtCleanupObjectFlag -InputObject $item -Name "IsCleanerML") {
+                # Process guarding: skip if associated application is running
+                $cmProcessNames = @(Get-WmtCleanupObjectValue -InputObject $item -Name "ProcessNames" -Default @())
+                if ($cmProcessNames.Count -gt 0) {
+                    $isRunning = Test-WmtCleanerMlProcessGuard -ProcessNames $cmProcessNames -CleanerName $itemName
+                    if ($isRunning) { continue }
+                }
+
+                # Execute process actions first (e.g. net stop wuauserv before deleting files)
+                $cmProcessActions = @(Get-WmtCleanupObjectValue -InputObject $item -Name "ProcessActions" -Default @())
+                foreach ($procAction in $cmProcessActions) {
+                    Invoke-CleanerMlProcess -Action $procAction -RuleName $itemName
+                }
+
+                # Execute path-based actions by command type
                 foreach ($rule in $itemPaths) {
-                    Invoke-CleanerMlClean -Rule $rule -RuleName $itemName
+                    $ruleCmd = [string](Get-WmtCleanupObjectValue -InputObject $rule -Name "Command" -Default "delete")
+                    switch ($ruleCmd) {
+                        "truncate"      { Invoke-CleanerMlTruncate -Rule $rule -RuleName $itemName }
+                        "sqlite.vacuum" { Invoke-CleanerMlSqliteVacuum -Rule $rule -RuleName $itemName }
+                        "winreg"        { Invoke-CleanerMlWinreg -Rule $rule -RuleName $itemName }
+                        default          { Invoke-CleanerMlClean -Rule $rule -RuleName $itemName }
+                    }
                 }
             }
             # --- B. WINAPP2 RULES ---
