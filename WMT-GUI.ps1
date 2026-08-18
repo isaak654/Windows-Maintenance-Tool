@@ -11,6 +11,7 @@
 # ==========================================
 $AppVersion = "6.5"
 $ErrorActionPreference = "SilentlyContinue"
+$script:WmtDebug = [bool](Get-WmtSetting -Name "DebugMode" -Default $false -ErrorAction SilentlyContinue)
 # Preserve UTF-8 for web content, alt codes, and Unicode symbols.
 # OEM encoding is only used per-process where needed (e.g. ipconfig).
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -2598,6 +2599,48 @@ try {
         </Setter.Value>
     </Setter>
 </Style>
+
+<Style x:Key="ModernSearchBoxStyle" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource BgDark}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Height" Value="40"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="UseLayoutRounding" Value="True"/>
+    <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+            <Setter Property="BorderBrush" Value="{DynamicResource TextMuted}"/>
+        </Trigger>
+    </Style.Triggers>
+</Style>
+
+<Style x:Key="SearchClearBtnStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="FontSize" Value="14"/>
+    <Setter Property="FontWeight" Value="Bold"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template">
+        <Setter.Value>
+            <ControlTemplate TargetType="Button">
+                <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                        CornerRadius="6" Padding="4" SnapsToDevicePixels="True">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+        </Setter.Value>
+    </Setter>
+</Style>
 </ResourceDictionary>
 '@
     $reader = [System.Xml.XmlNodeReader]::new($runtimeResourcesXaml)
@@ -4145,7 +4188,11 @@ try {
         UpdateScansDisabled         = [bool](Get-WmtUpdateScansDisabled -Settings $Settings)
         SavedUpdateAutoScanMinutes  = (ConvertTo-Int (Get-WmtSavedUpdateAutoScanMinutes -Settings $Settings) 0)
         LoadWinapp2                = [bool]$Settings.LoadWinapp2
+        LoadWinapp3                = [bool]$Settings.LoadWinapp3
         LoadCleanerML              = [bool]$Settings.LoadCleanerML
+        LoadCleanerMLPending       = [bool]$Settings.LoadCleanerMLPending
+        SkipRuleDownloads          = [bool]$Settings.SkipRuleDownloads
+        CacheOnly                  = [bool]$Settings.CacheOnly
         EnabledProviders           = $Settings.EnabledProviders
         ProviderToggles            = if ($Settings.ProviderToggles) { $Settings.ProviderToggles } else { @{} }
         WuCategoryToggles          = if ($Settings.WuCategoryToggles) { $Settings.WuCategoryToggles } else { @{} }
@@ -4192,7 +4239,11 @@ $defaults = @{
     UpdateScansDisabled         = $false
     SavedUpdateAutoScanMinutes = 0
     LoadWinapp2                = $false 
+    LoadWinapp3                = $false
     LoadCleanerML              = $false
+    LoadCleanerMLPending       = $false
+    SkipRuleDownloads          = $false
+    CacheOnly                  = $false
     EnabledProviders           = @("winget", "msstore", "windowsupdate", "pip", "npm", "pnpm", "dotnet", "psmodule", "composer", "chocolatey", "scoop", "gem", "cargo", "steam", "legendary", "gogdl")
     WuCategoryToggles          = @{}
     ProviderToggles            = @{}
@@ -4242,7 +4293,11 @@ if (Test-Path $path) {
             if ($defaults.SavedUpdateAutoScanMinutes -lt 0) { $defaults.SavedUpdateAutoScanMinutes = 0 }
         }
         if ($json.PSObject.Properties["LoadWinapp2"]) { $defaults.LoadWinapp2 = [bool]$json.LoadWinapp2 }
+        if ($json.PSObject.Properties["LoadWinapp3"]) { $defaults.LoadWinapp3 = [bool]$json.LoadWinapp3 }
         if ($json.PSObject.Properties["LoadCleanerML"]) { $defaults.LoadCleanerML = [bool]$json.LoadCleanerML }
+        if ($json.PSObject.Properties["LoadCleanerMLPending"]) { $defaults.LoadCleanerMLPending = [bool]$json.LoadCleanerMLPending }
+        if ($json.PSObject.Properties["SkipRuleDownloads"]) { $defaults.SkipRuleDownloads = [bool]$json.SkipRuleDownloads }
+        if ($json.PSObject.Properties["CacheOnly"]) { $defaults.CacheOnly = [bool]$json.CacheOnly }
         if ($json.PSObject.Properties["EnabledProviders"]) { $defaults.EnabledProviders = $json.EnabledProviders }
         if ($json.PSObject.Properties["ProviderToggles"]) { $defaults.ProviderToggles = $json.ProviderToggles }
         if ($json.PSObject.Properties["WuCategoryToggles"]) { $defaults.WuCategoryToggles = $json.WuCategoryToggles }
@@ -7074,7 +7129,7 @@ foreach ($pathCandidate in $paths) {
         $p = [regex]::Replace($p, '%' + $escapedKey + '%', $escapedValue, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         $p = [regex]::Replace($p, '\$\{' + $escapedKey + '\}', $escapedValue, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         $p = [regex]::Replace($p, '\$' + $escapedKey + '\$', $escapedValue, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-        $p = [regex]::Replace($p, '\$' + $escapedKey + '\b', $escapedValue, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        $p = [regex]::Replace($p, '\$' + $escapedKey + '(?=[^A-Za-z0-9_]|$)', $escapedValue, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     }
 
     $p = [Environment]::ExpandEnvironmentVariables($p)
@@ -7195,7 +7250,7 @@ try {
         }
     }
 }
-catch {}
+catch { if ($script:WmtDebug) { Write-GuiLog "PathEvidence error ($Path): $($_.Exception.Message)" } }
 
 return $false
 }
@@ -7211,11 +7266,14 @@ return $true
 }
 
 function Get-WmtBleachBitCleanerXmlDirectories {
+param([switch]$IncludePending)
+
 $dataPath = Get-DataPath
 $dirs = [System.Collections.Generic.List[string]]::new()
-[void]$dirs.Add((Join-Path $dataPath "bleachbit_cleanerml\bleachbit-master\cleaners"))
-[void]$dirs.Add((Join-Path $dataPath "bleachbit-master\bleachbit-master\cleaners"))
-[void]$dirs.Add((Join-Path $dataPath "cleanerml-master\cleanerml-master\release"))
+[void]$dirs.Add((Join-Path $dataPath "bleachbit_cleanerml\cleanerml-master\release"))
+if ($IncludePending) {
+    [void]$dirs.Add((Join-Path $dataPath "bleachbit_cleanerml\cleanerml-master\pending"))
+}
 [void]$dirs.Add((Join-Path $env:APPDATA "BleachBit\cleaners"))
 [void]$dirs.Add((Join-Path $env:ProgramFiles "BleachBit\share\cleaners"))
 
@@ -7234,7 +7292,9 @@ return $existing.ToArray()
 }
 
 function Get-WmtBleachBitCleanerXmlFiles {
-$dirs = @(Get-WmtBleachBitCleanerXmlDirectories)
+param([switch]$IncludePending)
+
+$dirs = @(Get-WmtBleachBitCleanerXmlDirectories -IncludePending:$IncludePending)
 if ($dirs.Count -eq 0) { return @() }
 
 $filesByPath = [System.Collections.Generic.SortedDictionary[string, System.IO.FileInfo]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -7321,45 +7381,95 @@ try {
 
     return $true
 }
-catch {
-    return $false
-}
+catch { if ($script:WmtDebug) { Write-GuiLog "CacheMetaMatch error: $($_.Exception.Message)" }; return $false }
 }
 
 function Update-WmtBleachBitCleanerMlFiles {
 $dataPath = Get-DataPath
 $targetRoot = Join-Path $dataPath "bleachbit_cleanerml"
-$zipPath = Join-Path $targetRoot "bleachbit-master.zip"
-$extractRoot = Join-Path $targetRoot "bleachbit-master"
+$canonicalRoot = Join-Path $targetRoot "cleanerml-master"
+$tempRoot = ""
+$tempZip = ""
 
 try {
     [System.IO.Directory]::CreateDirectory($targetRoot) | Out-Null
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $url = "https://codeload.github.com/bleachbit/bleachbit/zip/refs/heads/master"
+    $url = "https://github.com/bleachbit/cleanerml/archive/refs/heads/master.zip"
+
+    # Download to a temporary location first
+    $tempZip = [System.IO.Path]::GetTempFileName()
     $wc = New-Object System.Net.WebClient
-    $wc.DownloadFile($url, $zipPath)
-    $wc.Dispose()
-
-    if (Test-Path -LiteralPath $extractRoot) {
-        Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+    try {
+        $wc.DownloadFile($url, $tempZip)
     }
-    [System.IO.Directory]::CreateDirectory($extractRoot) | Out-Null
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractRoot)
+    finally {
+        $wc.Dispose()
+    }
 
-    $nested = Get-ChildItem -LiteralPath $extractRoot -Directory -Filter "bleachbit-*" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($nested -and (Test-Path -LiteralPath (Join-Path $nested.FullName "cleaners"))) {
-        $finalRoot = Join-Path $targetRoot "bleachbit-master-normalized"
-        if (Test-Path -LiteralPath $finalRoot) {
-            Remove-Item -LiteralPath $finalRoot -Recurse -Force -ErrorAction SilentlyContinue
+    # Validate ZIP before extraction
+    if (-not (Test-Path -LiteralPath $tempZip) -or (New-Object System.IO.FileInfo($tempZip)).Length -eq 0) {
+        Write-GuiLog "CleanerML download failed: empty or missing ZIP"
+        return
+    }
+
+    # Extract to a temporary directory
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("WMT_CleanerML_" + [guid]::NewGuid().ToString("N"))
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    try {
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($tempZip, $tempRoot)
+    }
+    catch {
+        Write-GuiLog "CleanerML ZIP extraction failed: $($_.Exception.Message)"
+        return
+    }
+
+    # Find the extracted repo root (cleanerml-master/)
+    $nested = Get-ChildItem -LiteralPath $tempRoot -Directory -Filter "cleanerml-*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $stagingRoot = if ($nested) { $nested.FullName } else { $tempRoot }
+
+    # We want the release/ subfolder containing vetted XML cleaners
+    $releaseDir = Join-Path $stagingRoot "release"
+    if (-not (Test-Path -LiteralPath $releaseDir)) {
+        Write-GuiLog "CleanerML download: no 'release' folder found in archive"
+        return
+    }
+
+    # Atomic swap: rename current root out of the way, move new one in
+    $backupRoot = $canonicalRoot + "_prev"
+    if (Test-Path -LiteralPath $canonicalRoot) {
+        try { Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+        try { Rename-Item -LiteralPath $canonicalRoot -NewName "cleanerml-master_prev" -Force -ErrorAction Stop } catch {}
+    }
+
+    try {
+        if (Test-Path -LiteralPath $canonicalRoot) {
+            Remove-Item -LiteralPath $canonicalRoot -Recurse -Force -ErrorAction Stop
         }
-        Move-Item -LiteralPath $nested.FullName -Destination $finalRoot -Force
-        Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
-        Rename-Item -LiteralPath $finalRoot -NewName "bleachbit-master" -Force
+        Move-Item -LiteralPath $stagingRoot -Destination $canonicalRoot -Force -ErrorAction Stop
+        # Clean up backup on success
+        if (Test-Path -LiteralPath $backupRoot) {
+            Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        # Restore backup on failure
+        if ((Test-Path -LiteralPath $backupRoot) -and -not (Test-Path -LiteralPath $canonicalRoot)) {
+            try { Rename-Item -LiteralPath $backupRoot -NewName "cleanerml-master" -Force } catch {}
+        }
+        Write-GuiLog "CleanerML update failed during swap: $($_.Exception.Message)"
     }
 }
 catch {
     Write-GuiLog "CleanerML download warning: $($_.Exception.Message)"
+}
+finally {
+    # Always clean up temp files
+    if ($tempZip -and (Test-Path -LiteralPath $tempZip)) {
+        try { Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue } catch {}
+    }
+    if ($tempRoot -and (Test-Path -LiteralPath $tempRoot)) {
+        try { Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+    }
 }
 }
 
@@ -7378,7 +7488,7 @@ function ConvertFrom-WmtCleanerMlFile {
 param([string]$Path)
 
 try { [xml]$xml = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop }
-catch { return @() }
+catch { if ($script:WmtDebug) { Write-GuiLog "CleanerML parse error ($Path): $($_.Exception.Message)" }; return @() }
 
 $cleaner = $xml.cleaner
 if (-not $cleaner -or -not (Test-WmtCleanerMlOs $cleaner)) { return @() }
@@ -7492,17 +7602,23 @@ return $rules.ToArray()
 }
 
 function Get-BleachBitCleanerMlRules {
-param([switch]$Download)
+param([switch]$Download, [switch]$IncludePending, [switch]$SkipDownloads, [switch]$CacheOnly)
 
 $dataPath = Get-DataPath
 $cachePath = Join-Path $dataPath "cleanerml_cache.json"
 $cacheMetaPath = Join-Path $dataPath "cleanerml_cache.meta.json"
-$cacheVersion = 2
+$cacheVersion = if ($IncludePending) { 4 } else { 3 }
 
-if ($Download) { Update-WmtBleachBitCleanerMlFiles }
+# Migrate: remove old bleachbit repo download (now using cleanerml repo)
+$oldBleachbitRoot = Join-Path $dataPath "bleachbit_cleanerml\bleachbit-master"
+if (Test-Path -LiteralPath $oldBleachbitRoot) {
+    try { Remove-Item -LiteralPath $oldBleachbitRoot -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+if ($Download -and -not $SkipDownloads) { Update-WmtBleachBitCleanerMlFiles }
 if (-not $script:CleanerMlRulesMemoryCache) { $script:CleanerMlRulesMemoryCache = @{} }
 
-$xmlFiles = @(Get-WmtBleachBitCleanerXmlFiles)
+$xmlFiles = @(Get-WmtBleachBitCleanerXmlFiles -IncludePending:$IncludePending)
 $sourceSignature = Get-WmtCleanerMlSourceSignature -XmlFiles $xmlFiles
 $memoryKey = if ($sourceSignature.FileCount -gt 0) {
     "{0}|{1}|{2}|{3}" -f $cacheVersion, [int]$sourceSignature.FileCount, [int64]$sourceSignature.TotalLength, [int64]$sourceSignature.LatestWriteUtcTicks
@@ -7515,6 +7631,18 @@ else { "" }
 
 if (-not $Download -and $memoryKey -and $script:CleanerMlRulesMemoryCache.ContainsKey($memoryKey)) {
     return $script:CleanerMlRulesMemoryCache[$memoryKey]
+}
+
+# --- CACHE ONLY MODE ---
+if ($CacheOnly -and (Test-Path $cachePath)) {
+    try {
+        $cachedRules = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+        if ($cachedRules.Count -gt 0) {
+            if ($memoryKey) { $script:CleanerMlRulesMemoryCache[$memoryKey] = $cachedRules }
+            return $cachedRules
+        }
+    }
+    catch { if ($script:WmtDebug) { Write-GuiLog "CleanerML cache-only load error: $($_.Exception.Message)" } }
 }
 
 $forceRebuild = $false
@@ -7531,19 +7659,25 @@ if (Test-Path $cachePath) {
                 if (-not (Test-WmtCleanerMlCacheMetaMatch -Meta $meta -SourceSignature $sourceSignature -CacheVersion $cacheVersion)) {
                     $forceRebuild = $true
                 }
+                # Source files were deleted since last cache build
+                elseif ([int]$meta.FileCount -gt 0 -and [int]$sourceSignature.FileCount -eq 0) {
+                    $forceRebuild = $true
+                }
             }
             elseif ($sourceSignature.LatestWriteUtcTicks -gt $cacheInfo.LastWriteTimeUtc.Ticks) {
                 $forceRebuild = $true
             }
         }
-        elseif (Test-Path $cacheMetaPath) {
-            $meta = Get-Content -LiteralPath $cacheMetaPath -Raw -ErrorAction Stop | ConvertFrom-Json
-            if ([int]$meta.CacheVersion -ne $cacheVersion) { $forceRebuild = $true }
+        else {
+            # No source XML files found — check if cache was built from files that no longer exist
+            if (Test-Path $cacheMetaPath) {
+                $meta = Get-Content -LiteralPath $cacheMetaPath -Raw -ErrorAction Stop | ConvertFrom-Json
+                if ([int]$meta.CacheVersion -ne $cacheVersion) { $forceRebuild = $true }
+                elseif ([int]$meta.FileCount -gt 0) { $forceRebuild = $true }
+            }
         }
     }
-    catch {
-        $forceRebuild = ($sourceSignature.FileCount -gt 0)
-    }
+    catch { if ($script:WmtDebug) { Write-GuiLog "CleanerML cache validation error: $($_.Exception.Message)" }; $forceRebuild = ($sourceSignature.FileCount -gt 0) }
 }
 
 if (-not $forceRebuild -and (Test-Path $cachePath)) {
@@ -7566,7 +7700,7 @@ if (-not $forceRebuild -and (Test-Path $cachePath)) {
             return $cachedRules
         }
     }
-    catch {}
+    catch { if ($script:WmtDebug) { Write-GuiLog "CleanerML cache load error: $($_.Exception.Message)" } }
 }
 
 if ($xmlFiles.Count -eq 0) { return @() }
@@ -7591,14 +7725,14 @@ try {
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cacheMetaPath -Force
     $memoryKey = "{0}|{1}|{2}|{3}" -f $cacheVersion, [int]$sourceSignature.FileCount, [int64]$sourceSignature.TotalLength, [int64]$sourceSignature.LatestWriteUtcTicks
 }
-catch {}
+catch { if ($script:WmtDebug) { Write-GuiLog "CleanerML cache write error: $($_.Exception.Message)" } }
 
 if ($memoryKey) { $script:CleanerMlRulesMemoryCache[$memoryKey] = $final }
 return $final
 }
 
 function Get-Winapp2Rules {
-param([switch]$Download)
+param([switch]$Download, [switch]$SkipDownloads, [switch]$CacheOnly)
 
 $dataPath = Get-DataPath
 $iniPath = Join-Path $dataPath "winapp2.ini"
@@ -7623,6 +7757,18 @@ if (-not $Download -and $memoryKey -and $script:Winapp2RulesMemoryCache.Contains
     return $script:Winapp2RulesMemoryCache[$memoryKey]
 }
 
+# --- 0. CACHE ONLY MODE ---
+if ($CacheOnly -and (Test-Path $cachePath)) {
+    try {
+        $cachedRules = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+        if ($cachedRules.Count -gt 0) {
+            if ($memoryKey) { $script:Winapp2RulesMemoryCache[$memoryKey] = $cachedRules }
+            return $cachedRules
+        }
+    }
+    catch { if ($script:WmtDebug) { Write-GuiLog "Winapp2 cache-only load error: $($_.Exception.Message)" } }
+}
+
 # --- 1. SMART CACHE CHECK ---
 $forceRebuild = $false
 
@@ -7643,23 +7789,21 @@ if (Test-Path $cachePath) {
                     $forceRebuild = $true
                 }
             }
-            elseif ($iniInfo.LastWriteTimeUtc -gt $cacheInfo.LastWriteTimeUtc) {
+            else {
+                # No meta file — cache provenance unknown; force rebuild so
+                # toggling Winapp3 on/off is always reflected.
                 $forceRebuild = $true
             }
         }
     }
     catch {
-        if (-not (Test-Path $iniPath)) {
-            $forceRebuild = $false
-        }
-        else {
-            $forceRebuild = $true
-        }
+        # INI was deleted — invalidate cache so we return empty instead of stale data
+        $forceRebuild = $true
     }
 }
 
 # --- 2. DOWNLOAD ---
-if ($Download) {
+if ($Download -and -not $SkipDownloads) {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Add-Type -AssemblyName System.Net.Http
@@ -7676,7 +7820,7 @@ if ($Download) {
         }
         $client.Dispose()
     }
-    catch { Write-GuiLog "Download Warning: $($_.Exception.Message)" }
+    catch { Write-GuiLog "Download Warning: $($_.Exception.Message)"; if ($script:WmtDebug) { Write-GuiLog "Winapp2 download stack: $($_.ScriptStackTrace)" } }
 }
 
 # --- 3. CACHE LOAD ---
@@ -7699,7 +7843,7 @@ if (-not $forceRebuild -and (Test-Path $cachePath)) {
             return $cachedRules
         }
     }
-    catch {}
+    catch { if ($script:WmtDebug) { Write-GuiLog "Winapp2 cache load error: $($_.Exception.Message)" } }
 }
 
 # --- 4. PARSE INI ---
@@ -7730,12 +7874,15 @@ foreach ($line in $lines) {
     if ($line[0] -eq '[') {
         if ($currentApp -and -not $skipApp) { $rules.Add([PSCustomObject]$currentApp) }
         $appName = $line.Trim(" []")
+        # Skip non-application sections
+        if ($appName -eq "Default") { $currentApp = $null; $skipApp = $true; continue }
         $currentApp = [ordered]@{ 
             Name       = $appName
             ID         = "Winapp2_" + ($appName -replace '[^a-zA-Z0-9]', '')
             Section    = "Applications"
             AppGroup   = "General"
             Paths      = New-Object System.Collections.Generic.List[Object]
+            ExcludeKeys = New-Object System.Collections.Generic.List[string]
             Desc       = ""
             IsInternal = $false
         }
@@ -7760,27 +7907,41 @@ foreach ($line in $lines) {
             } 
         }
 
+        # OS Version Detection (DetectOS=)
+        if ($key -eq "DetectOS") {
+            $osVersion = [Environment]::OSVersion
+            $osMajorMinor = "{0}.{1}" -f $osVersion.Version.Major, $osVersion.Version.Minor
+            $osParts = @($val -split '\|' | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $osMatch = $false
+            foreach ($osPart in $osParts) {
+                if ($osMajorMinor -like $osPart -or $osVersion.VersionString -like $osPart) {
+                    $osMatch = $true
+                    break
+                }
+            }
+            if ($osMatch) { $skipApp = $false }
+        }
         # Registry Detection
-        if ($val -match "^HK") {
+        elseif ($val -match "^HK") {
             $regPath = $val -replace "^(?i)HKCU", "Registry::HKEY_CURRENT_USER" `
                 -replace "^(?i)HKLM", "Registry::HKEY_LOCAL_MACHINE" `
                 -replace "^(?i)HKCR", "Registry::HKEY_CLASSES_ROOT" `
                 -replace "^(?i)HKU", "Registry::HKEY_USERS"
             if (Test-Path $regPath) { $skipApp = $false }
-        } 
+        }
         # File Detection
         else {
             try {
                 $parent = [System.IO.Path]::GetDirectoryName($val)
                 if (-not [string]::IsNullOrWhiteSpace($parent)) {
                     if (-not $dirCache.ContainsKey($parent)) { $dirCache[$parent] = (Test-Path $parent) }
-                    if ($dirCache[$parent]) { 
-                        if (Test-Path $val) { $skipApp = $false } 
+                    if ($dirCache[$parent]) {
+                        if (Test-Path $val) { $skipApp = $false }
                     }
                 }
             }
-            catch { 
-                if (Test-Path $val) { $skipApp = $false } 
+            catch {
+                if (Test-Path $val) { $skipApp = $false }
             }
         }
     }
@@ -7793,11 +7954,34 @@ foreach ($line in $lines) {
             if (-not $skipApp) { $currentApp.Paths.Add(@{ Path = $rawPath; Pattern = $parts[1]; Options = if ($parts.Count -gt 2) { $parts[2] } else { "" } }) }
         }
     }
+    elseif ($key -eq "SpecialFunc") {
+        # SpecialFunc requires external code not available here; log and skip
+        if (-not $script:Winapp2SpecialFuncCount) { $script:Winapp2SpecialFuncCount = 0 }
+        $script:Winapp2SpecialFuncCount++
+        $skipApp = $true
+    }
+    elseif ($key -eq "ExcludeKey") {
+        if ($currentApp -and $currentApp.ExcludeKeys) {
+            $excludeVal = ($val -split '|') | Select-Object -First 1
+            if (-not [string]::IsNullOrWhiteSpace($excludeVal)) {
+                $excludeVal = $excludeVal.Trim()
+                if ($excludeVal.IndexOf('%') -ge 0) {
+                    foreach ($k in $envVars.Keys) { if ($excludeVal.Contains($k)) { $excludeVal = $excludeVal.Replace($k, $envVars[$k]) } }
+                }
+                $excludeVal = [Environment]::ExpandEnvironmentVariables($excludeVal)
+                [void]$currentApp.ExcludeKeys.Add($excludeVal)
+            }
+        }
+    }
     elseif ($key -eq "Description") { $currentApp.Desc = $val }
 }
 if ($currentApp -and -not $skipApp) { $rules.Add([PSCustomObject]$currentApp) }
 
 # --- 5. CATEGORIZATION ---
+if ($script:Winapp2SpecialFuncCount -gt 0) {
+    Write-GuiLog "Winapp2: skipped $($script:Winapp2SpecialFuncCount) rule(s) using SpecialFunc (not supported)"
+}
+$script:Winapp2SpecialFuncCount = 0
 $finalList = $rules | Where-Object { $_.Paths.Count -gt 0 }
 
 foreach ($app in $finalList) {
@@ -7851,10 +8035,280 @@ try {
         $memoryKey = "{0}|{1}|{2}" -f $cacheVersion, [int64]$iniInfo.Length, $iniInfo.LastWriteTimeUtc.Ticks
     }
 }
-catch {}
+catch { if ($script:WmtDebug) { Write-GuiLog "Winapp2 cache write error: $($_.Exception.Message)" } }
 
 if ($memoryKey) { $script:Winapp2RulesMemoryCache[$memoryKey] = $finalList }
 
+return $finalList
+}
+
+# Winapp3 rules — independent download, cache, and parse (mirrors Get-Winapp2Rules)
+function Get-Winapp3Rules {
+param([switch]$Download, [switch]$SkipDownloads, [switch]$CacheOnly)
+$dataPath = Get-DataPath
+$iniPath = Join-Path $dataPath "winapp3.ini"
+$cachePath = Join-Path $dataPath "winapp3_cache.json"
+$cacheMetaPath = Join-Path $dataPath "winapp3_cache.meta.json"
+$cacheVersion = 1
+if (-not $script:Winapp3RulesMemoryCache) { $script:Winapp3RulesMemoryCache = @{} }
+$iniInfoForCache = $null
+if (Test-Path $iniPath) {
+    try { $iniInfoForCache = Get-Item -LiteralPath $iniPath -ErrorAction Stop } catch {}
+}
+$memoryKey = if ($iniInfoForCache) {
+    "{0}|{1}|{2}" -f $cacheVersion, [int64]$iniInfoForCache.Length, $iniInfoForCache.LastWriteTimeUtc.Ticks
+}
+elseif (Test-Path $cachePath) {
+    $cacheInfo = Get-Item -LiteralPath $cachePath -ErrorAction SilentlyContinue
+    if ($cacheInfo) { "cache-only|{0}|{1}" -f [int64]$cacheInfo.Length, $cacheInfo.LastWriteTimeUtc.Ticks } else { "" }
+}
+else { "" }
+
+if (-not $Download -and $memoryKey -and $script:Winapp3RulesMemoryCache.ContainsKey($memoryKey)) {
+    return $script:Winapp3RulesMemoryCache[$memoryKey]
+}
+
+# --- 0. CACHE ONLY MODE ---
+if ($CacheOnly -and (Test-Path $cachePath)) {
+    try {
+        $cachedRules = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+        if ($cachedRules.Count -gt 0) {
+            if ($memoryKey) { $script:Winapp3RulesMemoryCache[$memoryKey] = $cachedRules }
+            return $cachedRules
+        }
+    }
+    catch { if ($script:WmtDebug) { Write-GuiLog "Winapp3 cache-only load error: $($_.Exception.Message)" } }
+}
+
+# --- 1. SMART CACHE CHECK ---
+$forceRebuild = $false
+if (Test-Path $cachePath) {
+    try {
+        if (Test-Path $iniPath) {
+            $iniInfo = Get-Item -LiteralPath $iniPath -ErrorAction Stop
+            $cacheInfo = Get-Item -LiteralPath $cachePath -ErrorAction Stop
+            $meta = $null
+            if (Test-Path $cacheMetaPath) {
+                $meta = Get-Content -LiteralPath $cacheMetaPath -Raw -ErrorAction Stop | ConvertFrom-Json
+            }
+            if ($meta) {
+                if ([int]$meta.CacheVersion -ne $cacheVersion -or
+                    [int64]$meta.IniLength -ne [int64]$iniInfo.Length -or
+                    [datetime]$meta.IniLastWriteUtc -ne $iniInfo.LastWriteTimeUtc) {
+                    $forceRebuild = $true
+                }
+            }
+            else {
+                $forceRebuild = $true
+            }
+        }
+    }
+    catch {
+        $forceRebuild = $true
+    }
+}
+
+# --- 2. DOWNLOAD ---
+if ($Download -and -not $SkipDownloads) {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Add-Type -AssemblyName System.Net.Http
+        $client = New-Object System.Net.Http.HttpClient
+        $client.Timeout = [TimeSpan]::FromSeconds(15)
+        $url = "https://github.com/MoscaDotTo/Winapp2/raw/refs/heads/master/Winapp3/Winapp3.ini"
+        $response = $client.GetAsync($url).Result
+        if ($response.IsSuccessStatusCode) {
+            $contentBytes = $response.Content.ReadAsByteArrayAsync().Result
+            $iniContent = [System.Text.Encoding]::UTF8.GetString($contentBytes)
+            [System.IO.File]::WriteAllText($iniPath, $iniContent)
+            $forceRebuild = $true
+        }
+        $client.Dispose()
+    }
+    catch { Write-GuiLog "Winapp3 download warning: $($_.Exception.Message)"; if ($script:WmtDebug) { Write-GuiLog "Winapp3 download stack: $($_.ScriptStackTrace)" } }
+}
+
+# --- 3. CACHE LOAD ---
+if (-not $forceRebuild -and (Test-Path $cachePath)) {
+    try {
+        $cachedRules = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+        if ($cachedRules.Count -gt 5) {
+            if ((Test-Path $iniPath) -and -not (Test-Path $cacheMetaPath)) {
+                try {
+                    $iniInfo = Get-Item -LiteralPath $iniPath -ErrorAction Stop
+                    [PSCustomObject]@{
+                        CacheVersion    = $cacheVersion
+                        IniLength       = [int64]$iniInfo.Length
+                        IniLastWriteUtc = $iniInfo.LastWriteTimeUtc
+                    } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $cacheMetaPath -Force
+                }
+                catch {}
+            }
+            if ($memoryKey) { $script:Winapp3RulesMemoryCache[$memoryKey] = $cachedRules }
+            return $cachedRules
+        }
+    }
+    catch { if ($script:WmtDebug) { Write-GuiLog "Winapp3 cache load error: $($_.Exception.Message)" } }
+}
+
+# --- 4. PARSE INI ---
+$iniContent = $null
+if (Test-Path $iniPath) { $iniContent = Get-Content $iniPath -Raw }
+if ([string]::IsNullOrWhiteSpace($iniContent)) { return @() }
+$rules = New-Object System.Collections.Generic.List[Object]
+$envVars = @{
+    "%Documents%"         = [Environment]::GetFolderPath("MyDocuments")
+    "%ProgramFiles%"      = $env:ProgramFiles
+    "%ProgramFiles(x86)%" = ${env:ProgramFiles(x86)}
+    "%SystemDrive%"       = $env:SystemDrive
+    "%AppData%"           = $env:APPDATA
+    "%LocalAppData%"      = $env:LOCALAPPDATA
+    "%CommonAppData%"     = $env:ProgramData
+    "%UserProfile%"       = $env:USERPROFILE
+}
+$dirCache = @{}
+$lines = $iniContent -split "\r?\n"
+$currentApp = $null; $skipApp = $false; $hasDetect = $false
+foreach ($line in $lines) {
+    if ([string]::IsNullOrWhiteSpace($line) -or $line[0] -eq ';') { continue }
+    if ($line[0] -eq '[') {
+        if ($currentApp -and -not $skipApp) { $rules.Add([PSCustomObject]$currentApp) }
+        $appName = $line.Trim(" []")
+        if ($appName -eq "Default") { $currentApp = $null; $skipApp = $true; continue }
+        $currentApp = [ordered]@{
+            Name       = $appName
+            ID         = "Winapp3_" + ($appName -replace '[^a-zA-Z0-9]', '')
+            Section    = "Applications"
+            AppGroup   = "General"
+            Paths      = New-Object System.Collections.Generic.List[Object]
+            ExcludeKeys = New-Object System.Collections.Generic.List[string]
+            Desc       = ""
+            IsInternal = $false
+            IsWinapp3  = $true
+        }
+        $skipApp = $false; $hasDetect = $false
+        continue
+    }
+    $eqIndex = $line.IndexOf('=')
+    if ($eqIndex -le 0) { continue }
+    if ($skipApp) { continue }
+    $key = $line.Substring(0, $eqIndex).Trim()
+    $val = $line.Substring($eqIndex + 1).Trim()
+    if ($key -eq "Section") { $currentApp.Section = $val }
+    elseif ($key.StartsWith("Detect")) {
+        if (-not $hasDetect) { $hasDetect = $true; $skipApp = $true }
+        if ($val.IndexOf('%') -ge 0) {
+            foreach ($k in $envVars.Keys) {
+                if ($val.Contains($k)) { $val = $val.Replace($k, $envVars[$k]) }
+            }
+        }
+        if ($key -eq "DetectOS") {
+            $w3OsVersion = [Environment]::OSVersion
+            $w3OsMajorMinor = "{0}.{1}" -f $w3OsVersion.Version.Major, $w3OsVersion.Version.Minor
+            $osParts = @($val -split '\|' | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $osMatch = $false
+            foreach ($osPart in $osParts) {
+                if ($w3OsMajorMinor -like $osPart -or $w3OsVersion.VersionString -like $osPart) { $osMatch = $true; break }
+            }
+            if ($osMatch) { $skipApp = $false }
+        }
+        elseif ($val -match "^HK") {
+            $regPath = $val -replace "^(?i)HKCU", "Registry::HKEY_CURRENT_USER" `
+                -replace "^(?i)HKLM", "Registry::HKEY_LOCAL_MACHINE" `
+                -replace "^(?i)HKCR", "Registry::HKEY_CLASSES_ROOT" `
+                -replace "^(?i)HKU", "Registry::HKEY_USERS"
+            if (Test-Path $regPath) { $skipApp = $false }
+        }
+        else {
+            try {
+                $parent = [System.IO.Path]::GetDirectoryName($val)
+                if (-not [string]::IsNullOrWhiteSpace($parent)) {
+                    if (-not $dirCache.ContainsKey($parent)) { $dirCache[$parent] = (Test-Path $parent) }
+                    if ($dirCache[$parent]) { if (Test-Path $val) { $skipApp = $false } }
+                }
+            }
+            catch { if (Test-Path $val) { $skipApp = $false } }
+        }
+    }
+    elseif ($key.StartsWith("FileKey")) {
+        $parts = $val -split "\|"
+        if ($parts.Count -ge 2) {
+            $rawPath = $parts[0]
+            if ($rawPath.IndexOf('%') -ge 0) { foreach ($k in $envVars.Keys) { if ($rawPath.Contains($k)) { $rawPath = $rawPath.Replace($k, $envVars[$k]) } } }
+            $rawPath = [Environment]::ExpandEnvironmentVariables($rawPath)
+            if (-not $skipApp) { $currentApp.Paths.Add(@{ Path = $rawPath; Pattern = $parts[1]; Options = if ($parts.Count -gt 2) { $parts[2] } else { "" } }) }
+        }
+    }
+    elseif ($key -eq "SpecialFunc") {
+        if (-not $script:Winapp3SpecialFuncCount) { $script:Winapp3SpecialFuncCount = 0 }
+        $script:Winapp3SpecialFuncCount++
+        $skipApp = $true
+    }
+    elseif ($key -eq "ExcludeKey") {
+        if ($currentApp -and $currentApp.ExcludeKeys) {
+            $excludeVal = ($val -split '|') | Select-Object -First 1
+            if (-not [string]::IsNullOrWhiteSpace($excludeVal)) {
+                $excludeVal = $excludeVal.Trim()
+                if ($excludeVal.IndexOf('%') -ge 0) {
+                    foreach ($k in $envVars.Keys) { if ($excludeVal.Contains($k)) { $excludeVal = $excludeVal.Replace($k, $envVars[$k]) } }
+                }
+                $excludeVal = [Environment]::ExpandEnvironmentVariables($excludeVal)
+                [void]$currentApp.ExcludeKeys.Add($excludeVal)
+            }
+        }
+    }
+    elseif ($key -eq "Description") { $currentApp.Desc = $val }
+}
+if ($currentApp -and -not $skipApp) { $rules.Add([PSCustomObject]$currentApp) }
+
+# --- 5. CATEGORIZATION ---
+if ($script:Winapp3SpecialFuncCount -gt 0) {
+    Write-GuiLog "Winapp3: skipped $($script:Winapp3SpecialFuncCount) rule(s) using SpecialFunc (not supported)"
+}
+$script:Winapp3SpecialFuncCount = 0
+$finalList = $rules | Where-Object { $_.Paths.Count -gt 0 }
+foreach ($app in $finalList) {
+    $name = $app.Name
+    if ($name -match "^Google Chrome") { $app.AppGroup = "Google Chrome"; $app.Section = "Browsers / Internet"; $app.Name = $name -replace "Google Chrome\s*", "" }
+    elseif ($name -match "^Microsoft Edge") { $app.AppGroup = "Microsoft Edge"; $app.Section = "Browsers / Internet"; $app.Name = $name -replace "Microsoft Edge\s*", "" }
+    elseif ($name -match "^Mozilla Firefox") { $app.AppGroup = "Mozilla Firefox"; $app.Section = "Browsers / Internet"; $app.Name = $name -replace "Mozilla Firefox\s*", "" }
+    elseif ($name -match "^Opera") { $app.AppGroup = "Opera"; $app.Section = "Browsers / Internet" }
+    elseif ($name -match "^Brave") { $app.AppGroup = "Brave"; $app.Section = "Browsers / Internet" }
+    elseif ($name -match "PowerToys") {
+        $app.Section = "Productivity"
+        $app.AppGroup = "Microsoft PowerToys"
+        $app.Name = $name -replace "^Microsoft\s*PowerToys\s*", ""
+    }
+    elseif ($name -match "^Microsoft\sOffice|^Office\s") { $app.Section = "Productivity"; $app.AppGroup = "Microsoft Office" }
+    elseif ($name -match "^Adobe\s") { $app.Section = "Productivity"; $app.AppGroup = "Adobe"; $app.Name = $name -replace "^Adobe\s+", "" }
+    elseif ($name -match "(?i)\b(Steam|Epic Games|Origin|Uplay|Ubisoft Connect|Battle.net|GOG Galaxy)\b") {
+        $app.Section = "Games"
+        $app.AppGroup = $name -split " " | Select-Object -First 1
+    }
+    elseif ($name -match "(?i)\b(Discord|Spotify|Skype|TeamViewer|Zoom|Slack|Telegram|WhatsApp)\b") {
+        $app.Section = "Internet & Chat"
+        $app.AppGroup = $name -split " " | Select-Object -First 1
+    }
+    elseif ($name -match "^Windows\s" -or $name -eq "Windows" -or $name -match "Defender|Explorer|Store|Management Console") {
+        $app.Section = "System"
+        $app.AppGroup = "Windows"
+        $app.Name = $name -replace "^Windows\s+", ""
+    }
+}
+try {
+    $finalList | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cachePath -Force
+    if (Test-Path $iniPath) {
+        $iniInfo = Get-Item -LiteralPath $iniPath -ErrorAction Stop
+        [PSCustomObject]@{
+            CacheVersion    = $cacheVersion
+            IniLength       = [int64]$iniInfo.Length
+            IniLastWriteUtc = $iniInfo.LastWriteTimeUtc
+        } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $cacheMetaPath -Force
+        $memoryKey = "{0}|{1}|{2}" -f $cacheVersion, [int64]$iniInfo.Length, $iniInfo.LastWriteTimeUtc.Ticks
+    }
+}
+catch { if ($script:WmtDebug) { Write-GuiLog "Winapp3 cache write error: $($_.Exception.Message)" } }
+if ($memoryKey) { $script:Winapp3RulesMemoryCache[$memoryKey] = $finalList }
 return $finalList
 }
 
@@ -7863,6 +8317,10 @@ $currentSettings = Get-WmtSettings
 $savedStates = $currentSettings.TempCleanup
 $isWinapp2Enabled = [bool]$currentSettings.LoadWinapp2
 $isCleanerMlEnabled = [bool]$currentSettings.LoadCleanerML
+$isCleanerMlPendingEnabled = [bool]$currentSettings.LoadCleanerMLPending
+$isWinapp3Enabled = [bool]$currentSettings.LoadWinapp3
+$isSkipDownloads = [bool]$currentSettings.SkipRuleDownloads
+$isCacheOnly = [bool]$currentSettings.CacheOnly
 
 [xml]$cleanupSelectionXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -7870,6 +8328,22 @@ $isCleanerMlEnabled = [bool]$currentSettings.LoadCleanerML
     Title="Advanced Cleanup Selection" Width="720" Height="820" MinWidth="620" MinHeight="540"
     WindowStartupLocation="CenterOwner" Background="{DynamicResource BgDark}" Foreground="{DynamicResource TextPrimary}"
     FontFamily="Segoe UI Variable Display, Segoe UI, Arial" FontSize="13">
+<Window.Resources>
+    <Style x:Key="ModernSearchBoxStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource BgDark}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="UseLayoutRounding" Value="True"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource TextMuted}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+</Window.Resources>
 <Grid>
     <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -7877,23 +8351,46 @@ $isCleanerMlEnabled = [bool]$currentSettings.LoadCleanerML
         <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <Border Grid.Row="0" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="16,12">
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="260"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel>
-                <CheckBox Name="chkToggleWinapp2" Content="Winapp2.ini rules" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <CheckBox Name="chkToggleCleanerML" Content="BleachBit CleanerML" FontWeight="SemiBold"/>
-            </StackPanel>
-            <TextBlock Name="lblStatus" Grid.Column="1" Margin="18,0" VerticalAlignment="Center" Foreground="{DynamicResource Warning}"/>
-            <StackPanel Grid.Column="2">
-                <TextBlock Text="Search" Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,4"/>
-                <TextBox Name="txtSearch" Height="34" VerticalContentAlignment="Center"/>
-            </StackPanel>
-        </Grid>
+    <Border Grid.Row="0" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="12,10">
+        <StackPanel>
+            <DockPanel>
+                <Border Style="{StaticResource ModernSearchBoxStyle}" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0" Width="220">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Path Grid.Column="0" Data="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"
+                              Fill="{DynamicResource TextMuted}" Stretch="Uniform" Height="14" Width="14"
+                              VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <TextBox Name="txtSearch" Grid.Column="1" Height="38"
+                                 VerticalContentAlignment="Center" Text="Search rules..."
+                                 Background="Transparent" BorderThickness="0"
+                                 Padding="0,0,0,0" Margin="0"
+                                 FontSize="14"
+                                 Foreground="{DynamicResource TextMuted}"
+                                 CaretBrush="{DynamicResource TextPrimary}"
+                                 SelectionBrush="{DynamicResource Accent}"/>
+                        <Button Name="btnClearSearch" Grid.Column="2" Content="X"
+                                Width="28" Height="28" Margin="0,0,6,0"
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="Collapsed" Cursor="Hand"
+                                ToolTip="Clear search"
+                                Background="Transparent" Foreground="{DynamicResource TextMuted}" BorderThickness="0" FontWeight="Bold" FontSize="14"/>
+                    </Grid>
+                </Border>
+                <WrapPanel VerticalAlignment="Center">
+                    <Button Name="chkToggleWinapp2" Content="Winapp2.ini" Background="{DynamicResource BgElevated}" Foreground="{DynamicResource TextPrimary}" BorderThickness="0" Height="34" Margin="4" FontSize="12" ToolTip="Load rules from Winapp2.ini community database"/>
+                    <Button Name="chkToggleWinapp3" Content="Winapp3.ini" Background="{DynamicResource BgElevated}" Foreground="{DynamicResource TextSecondary}" BorderThickness="0" Height="34" Margin="4" FontSize="11" ToolTip="Experimental rules from the Winapp3 beta INI"/>
+                    <Button Name="chkToggleCleanerML" Content="CleanerML" Background="{DynamicResource BgElevated}" Foreground="{DynamicResource TextPrimary}" BorderThickness="0" Height="34" Margin="4" FontSize="12" ToolTip="Load rules from BleachBit CleanerML definitions"/>
+                    <Button Name="chkToggleCleanerMLPending" Content="Pending (Beta)" Background="{DynamicResource BgElevated}" Foreground="{DynamicResource TextSecondary}" BorderThickness="0" Height="34" Margin="4" FontSize="11" ToolTip="Unverified CleanerML rules from the pending folder"/>
+                    <Button Name="chkSkipDownloads" Content="Skip Downloads" Background="{DynamicResource BgElevated}" Foreground="{DynamicResource TextSecondary}" BorderThickness="0" Height="34" Margin="4" FontSize="11" ToolTip="Don't download or update rule files. Use only what's cached locally."/>
+                    <Button Name="chkCacheOnly" Content="Cache Only" Background="{DynamicResource BgElevated}" Foreground="{DynamicResource TextSecondary}" BorderThickness="0" Height="34" Margin="4" FontSize="11" ToolTip="Skip cache validation and parsing. Instantly load from existing cache file."/>
+                </WrapPanel>
+            </DockPanel>
+            <TextBlock Name="lblStatus" Foreground="{DynamicResource Warning}" FontSize="12" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
     </Border>
 
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16,12">
@@ -7933,7 +8430,12 @@ catch {
 
 $chkToggleWinapp2 = $dialog.FindName("chkToggleWinapp2")
 $chkToggleCleanerML = $dialog.FindName("chkToggleCleanerML")
+$chkToggleCleanerMLPending = $dialog.FindName("chkToggleCleanerMLPending")
+$chkToggleWinapp3 = $dialog.FindName("chkToggleWinapp3")
+$chkSkipDownloads = $dialog.FindName("chkSkipDownloads")
+$chkCacheOnly = $dialog.FindName("chkCacheOnly")
 $txtSearch = $dialog.FindName("txtSearch")
+$btnClearSearch = $dialog.FindName("btnClearSearch")
 $lblStatus = $dialog.FindName("lblStatus")
 $pnlRules = $dialog.FindName("pnlRules")
 $btnClean = $dialog.FindName("btnClean")
@@ -7944,8 +8446,60 @@ $pnlEventLogProgress = $dialog.FindName("pnlEventLogProgress")
 $lblEventLogStatus = $dialog.FindName("lblEventLogStatus")
 $pbEventLogProgress = $dialog.FindName("pbEventLogProgress")
 
-if ($chkToggleWinapp2) { $chkToggleWinapp2.IsChecked = $isWinapp2Enabled }
-if ($chkToggleCleanerML) { $chkToggleCleanerML.IsChecked = $isCleanerMlEnabled }
+# Apply rounded toggle button template to all toggle buttons (avoids ControlTemplate in XAML)
+try {
+    $toggleTemplate = [Windows.Markup.XamlReader]::Parse(@'
+<ControlTemplate TargetType="Button" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+    <Border Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6"
+            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20,0"/>
+    </Border>
+</ControlTemplate>
+'@)
+    foreach ($btn in @($chkToggleWinapp2, $chkToggleWinapp3, $chkToggleCleanerML, $chkToggleCleanerMLPending, $chkSkipDownloads, $chkCacheOnly)) {
+        if ($btn) { $btn.Template = $toggleTemplate }
+    }
+} catch {}
+
+$secondaryBtnNames = @("chkToggleWinapp3", "chkToggleCleanerMLPending", "chkSkipDownloads", "chkCacheOnly")
+
+$toggleState = @{
+    Winapp2          = [bool]$isWinapp2Enabled
+    CleanerML        = [bool]$isCleanerMlEnabled
+    CleanerMLPending = [bool]$isCleanerMlPendingEnabled
+    Winapp3          = [bool]$isWinapp3Enabled
+    SkipDownloads    = [bool]$isSkipDownloads
+    CacheOnly        = [bool]$isCacheOnly
+}
+
+$setCleanerToggle = {
+    param($Button, [bool]$IsOn)
+    if (-not $Button) { return }
+    try {
+        if ($IsOn) {
+            $Button.Background = $dialog.TryFindResource("Accent")
+            $Button.Foreground = $dialog.TryFindResource("AccentText")
+            $Button.FontWeight = [System.Windows.FontWeights]::Bold
+        }
+        else {
+            $Button.Background = $dialog.TryFindResource("BgElevated")
+            $Button.FontWeight = [System.Windows.FontWeights]::Normal
+            if ($Button.Name -in $secondaryBtnNames) {
+                $Button.Foreground = $dialog.TryFindResource("TextSecondary")
+            } else {
+                $Button.Foreground = $dialog.TryFindResource("TextPrimary")
+            }
+        }
+    }
+    catch {}
+}
+
+& $setCleanerToggle $chkToggleWinapp2 $toggleState.Winapp2
+& $setCleanerToggle $chkToggleCleanerML $toggleState.CleanerML
+& $setCleanerToggle $chkToggleCleanerMLPending $toggleState.CleanerMLPending
+& $setCleanerToggle $chkToggleWinapp3 $toggleState.Winapp3
+& $setCleanerToggle $chkSkipDownloads $toggleState.SkipDownloads
+& $setCleanerToggle $chkCacheOnly $toggleState.CacheOnly
 
 $internalRules = @(
     [PSCustomObject]@{ Section = "System"; AppGroup = "Windows"; Name = "Temporary Files"; Key = "TempFiles"; Desc = "User and System Temp"; IsInternal = $true }
@@ -8102,7 +8656,9 @@ $setVisibility = {
 }.GetNewClosure()
 
 $applyCleanerSearch = {
-    $q = ([string]$txtSearch.Text).ToLowerInvariant()
+    $rawText = [string]$txtSearch.Text
+    if ($rawText -eq "Search rules...") { $rawText = "" }
+    $q = $rawText.ToLowerInvariant()
     foreach ($entry in @($sectionEntries.ToArray())) {
         $hasVisibleChildren = $false
         $currentGroupHeader = $null
@@ -8211,6 +8767,10 @@ $RenderAllRules = {
                 $chk.Content = $displayName
                 Set-WmtThemedBrush -Object $chk -Property ([System.Windows.Controls.CheckBox]::ForegroundProperty) -ColorOrKey "TextPrimary"
             }
+            elseif ($item.IsWinapp3) {
+                $chk.Content = "$displayName (winapp3.ini)"
+                Set-WmtThemedBrush -Object $chk -Property ([System.Windows.Controls.CheckBox]::ForegroundProperty) -ColorOrKey "Warning"
+            }
             elseif ($item.IsCleanerML) {
                 $chk.Content = "$displayName (CleanerML)"
                 Set-WmtThemedBrush -Object $chk -Property ([System.Windows.Controls.CheckBox]::ForegroundProperty) -ColorOrKey "Accent"
@@ -8262,14 +8822,18 @@ $RenderAllRules = {
         $secChk.IsChecked = $isSecChecked
         $secChk.Add_Checked({
                 param($s, $e)
-                $filterActive = -not [string]::IsNullOrWhiteSpace($txtSearch.Text)
+                $searchText = [string]$txtSearch.Text
+                if ($searchText -eq "Search rules...") { $searchText = "" }
+                $filterActive = -not [string]::IsNullOrWhiteSpace($searchText)
                 foreach ($c in $childChecks) {
                     if (-not $filterActive -or $c.Visibility -eq [System.Windows.Visibility]::Visible) { $c.IsChecked = $true }
                 }
             }.GetNewClosure())
         $secChk.Add_Unchecked({
                 param($s, $e)
-                $filterActive = -not [string]::IsNullOrWhiteSpace($txtSearch.Text)
+                $searchText = [string]$txtSearch.Text
+                if ($searchText -eq "Search rules...") { $searchText = "" }
+                $filterActive = -not [string]::IsNullOrWhiteSpace($searchText)
                 foreach ($c in $childChecks) {
                     if (-not $filterActive -or $c.Visibility -eq [System.Windows.Visibility]::Visible) { $c.IsChecked = $false }
                 }
@@ -8285,12 +8849,14 @@ $RenderAllRules = {
 
 $externalRuleState = @{
     Winapp2   = @()
+    Winapp3   = @()
     CleanerML = @()
 }
 
 $renderCurrentCleanerRules = {
     $combined = @($internalRules)
     if ($externalRuleState.Winapp2) { $combined += @($externalRuleState.Winapp2) }
+    if ($externalRuleState.Winapp3) { $combined += @($externalRuleState.Winapp3) }
     if ($externalRuleState.CleanerML) { $combined += @($externalRuleState.CleanerML) }
     & $RenderAllRules -allRules $combined
 }.GetNewClosure()
@@ -8307,31 +8873,43 @@ $loadExternalCleanerRules = {
     $dialog.Cursor = [System.Windows.Input.Cursors]::Wait
     Invoke-WmtDispatcherPump -Dispatcher $dialog.Dispatcher
 
+    $skipDl = $toggleState.SkipDownloads
+    $cacheOnly = $toggleState.CacheOnly
+
     try {
-        if ([bool]$chkToggleWinapp2.IsChecked) {
+        if ($toggleState.Winapp2) {
             $lblStatus.Text = "Loading Winapp2 rules..."
             Invoke-WmtDispatcherPump -Dispatcher $dialog.Dispatcher
             $iniPath = Join-Path (Get-DataPath) "winapp2.ini"
-            $cachePath = Join-Path (Get-DataPath) "winapp2_cache.json"
-            $shouldDownload = $ForceWinapp2Download -or ((-not (Test-Path $iniPath)) -and (-not (Test-Path $cachePath)))
-            $externalRuleState.Winapp2 = @(Get-Winapp2Rules -Download:$shouldDownload)
+            $shouldDownload = (-not $skipDl) -and ($ForceWinapp2Download -or (-not (Test-Path $iniPath)))
+            $externalRuleState.Winapp2 = @(Get-Winapp2Rules -Download:$shouldDownload -SkipDownloads:$skipDl -CacheOnly:$cacheOnly)
         }
         else {
             $externalRuleState.Winapp2 = @()
         }
 
-        if ([bool]$chkToggleCleanerML.IsChecked) {
+        if ($toggleState.Winapp3) {
+           $lblStatus.Text = "Loading Winapp3 rules..."
+           Invoke-WmtDispatcherPump -Dispatcher $dialog.Dispatcher
+           $w3IniPath = Join-Path (Get-DataPath) "winapp3.ini"
+           $w3ShouldDownload = (-not $skipDl) -and (-not (Test-Path $w3IniPath))
+           $externalRuleState.Winapp3 = @(Get-Winapp3Rules -Download:$w3ShouldDownload -SkipDownloads:$skipDl -CacheOnly:$cacheOnly)
+       }
+       else {
+           $externalRuleState.Winapp3 = @()
+       }
+
+        if ($toggleState.CleanerML) {
             $lblStatus.Text = "Loading BleachBit CleanerML..."
             Invoke-WmtDispatcherPump -Dispatcher $dialog.Dispatcher
             $hasLocalCleanerMl = ((Get-WmtBleachBitCleanerXmlDirectories).Count -gt 0)
             $cachePath = Join-Path (Get-DataPath) "cleanerml_cache.json"
-            $shouldDownloadCleanerMl = $ForceCleanerMlDownload -or ((-not $hasLocalCleanerMl) -and (-not (Test-Path $cachePath)))
-            $externalRuleState.CleanerML = @(Get-BleachBitCleanerMlRules -Download:$shouldDownloadCleanerMl)
+            $shouldDownloadCleanerMl = (-not $skipDl) -and ($ForceCleanerMlDownload -or ((-not $hasLocalCleanerMl) -and (-not (Test-Path $cachePath))))
+            $externalRuleState.CleanerML = @(Get-BleachBitCleanerMlRules -Download:$shouldDownloadCleanerMl -IncludePending:$toggleState.CleanerMLPending -SkipDownloads:$skipDl -CacheOnly:$cacheOnly)
         }
         else {
             $externalRuleState.CleanerML = @()
         }
-
         & $renderCurrentCleanerRules
     }
     catch {
@@ -8346,7 +8924,7 @@ $loadExternalCleanerRules = {
 
 $communityLoadState = @{ Started = $false }
 $loadCommunityRulesIfEnabled = {
-    if ($communityLoadState.Started -or (-not [bool]$chkToggleWinapp2.IsChecked -and -not [bool]$chkToggleCleanerML.IsChecked)) { return }
+    if ($communityLoadState.Started -or (-not $toggleState.Winapp2 -and -not $toggleState.Winapp3 -and -not $toggleState.CleanerML)) { return }
     $communityLoadState.Started = $true
     & $loadExternalCleanerRules
 }.GetNewClosure()
@@ -8355,21 +8933,73 @@ $dialog.Add_ContentRendered({ & $loadCommunityRulesIfEnabled }.GetNewClosure())
 $dialog.Add_Activated({ & $loadCommunityRulesIfEnabled }.GetNewClosure())
 
 if ($chkToggleWinapp2) { $chkToggleWinapp2.Add_Click({
-        $currentSettings.LoadWinapp2 = [bool]$chkToggleWinapp2.IsChecked
+        $toggleState.Winapp2 = -not $toggleState.Winapp2
+        $currentSettings.LoadWinapp2 = $toggleState.Winapp2
         Save-WmtSettings -Settings $currentSettings
-
+        & $setCleanerToggle $chkToggleWinapp2 $toggleState.Winapp2
         $iniPath = Join-Path (Get-DataPath) "winapp2.ini"
-        $forceDownload = [bool]$chkToggleWinapp2.IsChecked -and (-not (Test-Path $iniPath))
+        $forceDownload = $toggleState.Winapp2 -and (-not (Test-Path $iniPath))
         & $loadExternalCleanerRules -ForceWinapp2Download:$forceDownload
     }.GetNewClosure()) }
 
 if ($chkToggleCleanerML) { $chkToggleCleanerML.Add_Click({
-        $currentSettings.LoadCleanerML = [bool]$chkToggleCleanerML.IsChecked
+        $toggleState.CleanerML = -not $toggleState.CleanerML
+        $currentSettings.LoadCleanerML = $toggleState.CleanerML
         Save-WmtSettings -Settings $currentSettings
-
+        & $setCleanerToggle $chkToggleCleanerML $toggleState.CleanerML
         $cachePath = Join-Path (Get-DataPath) "cleanerml_cache.json"
-        $forceDownload = [bool]$chkToggleCleanerML.IsChecked -and ((Get-WmtBleachBitCleanerXmlDirectories).Count -eq 0) -and (-not (Test-Path $cachePath))
+        $forceDownload = $toggleState.CleanerML -and ((Get-WmtBleachBitCleanerXmlDirectories).Count -eq 0) -and (-not (Test-Path $cachePath))
         & $loadExternalCleanerRules -ForceCleanerMlDownload:$forceDownload
+    }.GetNewClosure()) }
+
+if ($chkToggleCleanerMLPending) { $chkToggleCleanerMLPending.Add_Click({
+        $toggleState.CleanerMLPending = -not $toggleState.CleanerMLPending
+        $currentSettings.LoadCleanerMLPending = $toggleState.CleanerMLPending
+        Save-WmtSettings -Settings $currentSettings
+        & $setCleanerToggle $chkToggleCleanerMLPending $toggleState.CleanerMLPending
+        & $loadExternalCleanerRules
+    }.GetNewClosure()) }
+
+if ($chkToggleWinapp3) { $chkToggleWinapp3.Add_Click({
+        $toggleState.Winapp3 = -not $toggleState.Winapp3
+        $currentSettings.LoadWinapp3 = $toggleState.Winapp3
+        Save-WmtSettings -Settings $currentSettings
+        & $setCleanerToggle $chkToggleWinapp3 $toggleState.Winapp3
+        try {
+            if ($toggleState.Winapp3) {
+                $lblStatus.Text = "Loading Winapp3 rules..."
+                $dialog.Cursor = [System.Windows.Input.Cursors]::Wait
+                Invoke-WmtDispatcherPump -Dispatcher $dialog.Dispatcher
+                $w3IniPath = Join-Path (Get-DataPath) "winapp3.ini"
+                $w3ShouldDownload = (-not $toggleState.SkipDownloads) -and (-not (Test-Path $w3IniPath))
+                $externalRuleState.Winapp3 = @(Get-Winapp3Rules -Download:$w3ShouldDownload -SkipDownloads:$toggleState.SkipDownloads -CacheOnly:$toggleState.CacheOnly)
+            } else {
+                $externalRuleState.Winapp3 = @()
+            }
+            & $renderCurrentCleanerRules
+        } catch {
+            Write-GuiLog "Winapp3 rules warning: $($_.Exception.Message)"
+            & $renderCurrentCleanerRules
+        } finally {
+            $dialog.Cursor = [System.Windows.Input.Cursors]::Arrow
+            $lblStatus.Text = ""
+        }
+    }.GetNewClosure()) }
+
+if ($chkSkipDownloads) { $chkSkipDownloads.Add_Click({
+        $toggleState.SkipDownloads = -not $toggleState.SkipDownloads
+        $currentSettings.SkipRuleDownloads = $toggleState.SkipDownloads
+        Save-WmtSettings -Settings $currentSettings
+        & $setCleanerToggle $chkSkipDownloads $toggleState.SkipDownloads
+        & $loadExternalCleanerRules
+    }.GetNewClosure()) }
+
+if ($chkCacheOnly) { $chkCacheOnly.Add_Click({
+        $toggleState.CacheOnly = -not $toggleState.CacheOnly
+        $currentSettings.CacheOnly = $toggleState.CacheOnly
+        Save-WmtSettings -Settings $currentSettings
+        & $setCleanerToggle $chkCacheOnly $toggleState.CacheOnly
+        & $loadExternalCleanerRules
     }.GetNewClosure()) }
 
 $searchDelayTimer = [System.Windows.Threading.DispatcherTimer]::new()
@@ -8379,10 +9009,51 @@ $searchDelayTimer.Add_Tick({
         & $applyCleanerSearch
     }.GetNewClosure())
 
+$script:CleanerSearchBorder = $txtSearch.Parent
+if ($script:CleanerSearchBorder -and $script:CleanerSearchBorder.Parent -is [System.Windows.Controls.Border]) {
+    $script:CleanerSearchBorder = $script:CleanerSearchBorder.Parent
+}
+
+$txtSearch.Add_GotFocus({
+    if ($txtSearch.Text -eq "Search rules...") {
+        $txtSearch.Text = ""
+        $txtSearch.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, "TextPrimary")
+    }
+    if ($script:CleanerSearchBorder) {
+        $script:CleanerSearchBorder.SetResourceReference([System.Windows.Controls.Border]::BorderBrushProperty, "Accent")
+        $script:CleanerSearchBorder.BorderThickness = [System.Windows.Thickness]::new(2)
+    }
+}.GetNewClosure())
+
+$txtSearch.Add_LostFocus({
+    if ([string]::IsNullOrWhiteSpace($txtSearch.Text)) {
+        $txtSearch.Text = "Search rules..."
+        $txtSearch.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, "TextMuted")
+    }
+    if ($script:CleanerSearchBorder) {
+        $script:CleanerSearchBorder.SetResourceReference([System.Windows.Controls.Border]::BorderBrushProperty, "BorderBrush")
+        $script:CleanerSearchBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+    }
+}.GetNewClosure())
+
 $txtSearch.Add_TextChanged({
-        $searchDelayTimer.Stop()
-        $searchDelayTimer.Start()
+    $hasRealText = (-not [string]::IsNullOrWhiteSpace($txtSearch.Text)) -and ($txtSearch.Text -ne "Search rules...")
+    if ($btnClearSearch) {
+        $btnClearSearch.Visibility = if ($hasRealText) { "Visible" } else { "Collapsed" }
+    }
+    $searchDelayTimer.Stop()
+    if ($hasRealText) { $searchDelayTimer.Start() }
+    else { & $applyCleanerSearch }
+}.GetNewClosure())
+
+if ($btnClearSearch) {
+    $btnClearSearch.Add_Click({
+        $txtSearch.Text = ""
+        $txtSearch.SetResourceReference([System.Windows.Controls.Control]::ForegroundProperty, "TextPrimary")
+        $btnClearSearch.Visibility = "Collapsed"
+        & $applyCleanerSearch
     }.GetNewClosure())
+}
 
 $dialog.Add_Closed({
         try { $searchDelayTimer.Stop() } catch {}
@@ -8392,7 +9063,9 @@ $selectionState = @{ Result = $null }
 
 $getSelectedCleanerItems = {
     $selectedItems = [System.Collections.Generic.List[object]]::new()
-    $filterActive = -not [string]::IsNullOrWhiteSpace($txtSearch.Text)
+    $searchText = [string]$txtSearch.Text
+    if ($searchText -eq "Search rules...") { $searchText = "" }
+    $filterActive = -not [string]::IsNullOrWhiteSpace($searchText)
     foreach ($key in $cleanupCheckboxes.Keys) {
         $cb = $cleanupCheckboxes[$key]
         $isVisibleForAction = (-not $filterActive) -or ($cb.Visibility -eq [System.Windows.Visibility]::Visible -and $cb.Parent.Visibility -eq [System.Windows.Visibility]::Visible)
@@ -8409,7 +9082,7 @@ $submitCleanupSelection = {
 
     $selectedItems = & $getSelectedCleanerItems
     if ($selectedItems.Count -le 0) {
-        $message = if ([string]::IsNullOrWhiteSpace($txtSearch.Text)) {
+        $message = if ([string]::IsNullOrWhiteSpace($txtSearch.Text) -or $txtSearch.Text -eq "Search rules...") {
             "Select at least one cleaner first."
         }
         else {
@@ -8422,8 +9095,12 @@ $submitCleanupSelection = {
     foreach ($key in $cleanupCheckboxes.Keys) {
         $currentSettings.TempCleanup[$key] = [bool]$cleanupCheckboxes[$key].IsChecked
     }
-    $currentSettings.LoadWinapp2 = [bool]$chkToggleWinapp2.IsChecked
-    $currentSettings.LoadCleanerML = [bool]$chkToggleCleanerML.IsChecked
+    $currentSettings.LoadWinapp2 = $toggleState.Winapp2
+    $currentSettings.LoadCleanerML = $toggleState.CleanerML
+    $currentSettings.LoadCleanerMLPending = $toggleState.CleanerMLPending
+    $currentSettings.LoadWinapp3 = $toggleState.Winapp3
+    $currentSettings.SkipRuleDownloads = $toggleState.SkipDownloads
+    $currentSettings.CacheOnly = $toggleState.CacheOnly
     Save-WmtSettings -Settings $currentSettings
 
     $selectionState.Result = [PSCustomObject]@{
@@ -9167,7 +9844,7 @@ function Get-WmtCleanupProtectionInfo {
 
 # --- HELPER: ROBUST CLEANER ---
 function Invoke-RobustClean {
-    param($Path, $Pattern = "*", $Recurse = $true, $RuleName = "System File")
+    param($Path, $Pattern = "*", $Recurse = $true, $RuleName = "System File", [string[]]$ExcludeKeys)
 
     $Path = [Environment]::ExpandEnvironmentVariables($Path)
     $pathHasWildcard = ($Path -match '[\*\?]')
@@ -9180,6 +9857,7 @@ function Invoke-RobustClean {
         $batchCount = 0
         $patterns = @($Pattern -split ';' | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         if ($patterns.Count -eq 0) { $patterns = @("*") }
+        $hasExcludeKeys = ($ExcludeKeys -and $ExcludeKeys.Count -gt 0)
 
         $roots = @()
         if ($pathHasWildcard) {
@@ -9195,6 +9873,13 @@ function Invoke-RobustClean {
             if (-not $root.PSIsContainer) {
                 foreach ($patternItem in $patterns) {
                     if ($root.Name -like $patternItem) {
+                        if ($hasExcludeKeys) {
+                            $excluded = $false
+                            foreach ($exKey in $ExcludeKeys) {
+                                if ($root.FullName -like $exKey) { $excluded = $true; break }
+                            }
+                            if ($excluded) { break }
+                        }
                         Add-WmtCleanupTarget -Path $root.FullName -RuleName $RuleName
                         $batchCount++
                         break
@@ -9204,6 +9889,13 @@ function Invoke-RobustClean {
             else {
                 foreach ($patternItem in $patterns) {
                     foreach ($file in @(Get-ChildItem -LiteralPath $root.FullName -Filter $patternItem -File -Recurse:$Recurse -Force -ErrorAction SilentlyContinue)) {
+                        if ($hasExcludeKeys) {
+                            $excluded = $false
+                            foreach ($exKey in $ExcludeKeys) {
+                                if ($file.FullName -like $exKey) { $excluded = $true; break }
+                            }
+                            if ($excluded) { continue }
+                        }
                         Add-WmtCleanupTarget -Path $file.FullName -RuleName $RuleName
                         $batchCount++
 
@@ -9225,7 +9917,7 @@ function Invoke-RobustClean {
             }
         }
     }
-    catch {}
+    catch { if ($script:WmtDebug) { Write-GuiLog "RobustClean error ($Path): $($_.Exception.Message)" } }
 }
 
 function Add-WmtCleanupTarget {
@@ -9260,7 +9952,7 @@ function Add-WmtCleanupTarget {
         $stats.Deleted++
         $stats.Bytes += $size
     }
-    catch {}
+    catch { if ($script:WmtDebug) { Write-GuiLog "CleanupTarget error ($Path): $($_.Exception.Message)" } }
 }
 
 function Test-WmtCleanerMlTargetMatch {
@@ -9291,14 +9983,14 @@ function Test-WmtCleanerMlTargetMatch {
     return $true
 }
 
-function Invoke-CleanerMlClean {
+function Get-CleanerMlScanTargets {
     param(
         $Rule,
-        [string]$RuleName
+        [string]$ProgressLabel
     )
 
     $path = [Environment]::ExpandEnvironmentVariables([string]$Rule.Path)
-    if ([string]::IsNullOrWhiteSpace($path)) { return }
+    if ([string]::IsNullOrWhiteSpace($path)) { return @() }
 
     $search = if ($Rule.Search) { [string]$Rule.Search } else { "file" }
     $targets = New-Object System.Collections.Generic.List[System.IO.FileSystemInfo]
@@ -9365,8 +10057,6 @@ function Invoke-CleanerMlClean {
             }
             "deep" {
                 if (Test-Path -LiteralPath $path) {
-                    $pStatus.Text = "Deep scan: $(Split-Path $path -Leaf)"
-                    Invoke-WmtDispatcherPump -Dispatcher $pForm.Dispatcher
                     $root = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
                     if ($root -and (Test-WmtCleanerMlTargetMatch -Item $root -Rule $Rule)) { [void]$targets.Add($root) }
                     if ($root -and $root.PSIsContainer) {
@@ -9377,12 +10067,29 @@ function Invoke-CleanerMlClean {
                 }
             }
         }
-
-        foreach ($target in @($targets.ToArray() | Sort-Object FullName -Unique)) {
-            Add-WmtCleanupTarget -Path $target.FullName -RuleName $RuleName
-        }
     }
-    catch {}
+    catch { if ($script:WmtDebug) { Write-GuiLog "CleanerMlScanTargets error ($([string]$Rule.Path)): $($_.Exception.Message)" } }
+
+    return @($targets.ToArray() | Sort-Object FullName -Unique)
+}
+
+function Invoke-CleanerMlClean {
+    param(
+        $Rule,
+        [string]$RuleName,
+        [Action[string]]$ProgressCallback
+    )
+
+    $progressLabel = $null
+    if ($Rule.Search -eq "deep") {
+        $progressLabel = "Deep scan: $(Split-Path ([Environment]::ExpandEnvironmentVariables([string]$Rule.Path)) -Leaf)"
+        if ($ProgressCallback) { & $ProgressCallback $progressLabel }
+        else { $pStatus.Text = $progressLabel; Invoke-WmtDispatcherPump -Dispatcher $pForm.Dispatcher }
+    }
+
+    foreach ($target in (Get-CleanerMlScanTargets -Rule $Rule -ProgressLabel $progressLabel)) {
+        Add-WmtCleanupTarget -Path $target.FullName -RuleName $RuleName
+    }
 }
 
 function Invoke-ThumbsDbDeepScan {
@@ -9507,15 +10214,21 @@ function New-WmtAnalyzeScanTasks {
             }
         }
         elseif ($itemPaths.Count -gt 0 -and -not ($item -is [string])) {
+            $excludeKeys = @($item | ForEach-Object {
+                $ek = Get-WmtCleanupObjectValue -InputObject $_ -Name "ExcludeKeys" -Default $null
+                if ($ek) { @($ek) } else { @() }
+            } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
             foreach ($rawRule in $itemPaths) {
                 $rule = ConvertTo-WmtWinapp2PathRule -Rule $rawRule
                 if (-not $rule) { continue }
                 [void]$tasks.Add([PSCustomObject]@{
-                        Engine   = "Robust"
-                        RuleName = $itemName
-                        Path     = [string]$rule.Path
-                        Pattern  = [string]$rule.Pattern
-                        Recurse  = [bool]$rule.Recurse
+                        Engine       = "Robust"
+                        RuleName     = $itemName
+                        Path         = [string]$rule.Path
+                        Pattern      = [string]$rule.Pattern
+                        Recurse      = [bool]$rule.Recurse
+                        RemoveSelf   = [bool]$rule.RemoveSelf
+                        ExcludeKeys  = @($excludeKeys)
                     })
             }
         }
@@ -10011,10 +10724,26 @@ try {
             }
             # --- B. WINAPP2 RULES ---
             elseif ($itemPaths.Count -gt 0 -and -not ($item -is [string])) {
+                $excludeKeys = @($item | ForEach-Object {
+                    $ek = Get-WmtCleanupObjectValue -InputObject $_ -Name "ExcludeKeys" -Default $null
+                    if ($ek) { @($ek) } else { @() }
+                } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
                 foreach ($rawRule in $itemPaths) {
                     $rule = ConvertTo-WmtWinapp2PathRule -Rule $rawRule
                     if (-not $rule) { continue }
-                    Invoke-RobustClean -Path $rule.Path -Pattern $rule.Pattern -Recurse ([bool]$rule.Recurse) -RuleName $itemName
+                    Invoke-RobustClean -Path $rule.Path -Pattern $rule.Pattern -Recurse ([bool]$rule.Recurse) -RuleName $itemName -ExcludeKeys $excludeKeys
+                    # Handle REMOVESELF: delete the directory itself after cleaning its contents
+                    if ([bool]$rule.RemoveSelf -and -not [string]::IsNullOrWhiteSpace($rule.Path) -and (Test-Path -LiteralPath $rule.Path)) {
+                        try {
+                            Remove-Item -LiteralPath $rule.Path -Recurse -Force -ErrorAction Stop
+                            if ($isAnalyze) {
+                                $stats.Deleted++
+                            }
+                        }
+                        catch {
+                            if ($script:WmtDebug) { Write-GuiLog "REMOVESELF failed for $($rule.Path): $($_.Exception.Message)" }
+                        }
+                    }
                 }
             }
             # --- C. INTERNAL RULES ---
