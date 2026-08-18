@@ -8978,7 +8978,9 @@ $renderCurrentCleanerRules = {
     if ($externalRuleState.Winapp2) { $combined += @($externalRuleState.Winapp2) }
     if ($externalRuleState.Winapp3) { $combined += @($externalRuleState.Winapp3) }
     if ($externalRuleState.CleanerML) { $combined += @($externalRuleState.CleanerML) }
-    & $RenderAllRules -allRules $combined
+    # Flatten the array explicitly before passing it to the renderer
+    $flatCombined = @($combined | ForEach-Object { $_ })
+    & $RenderAllRules -allRules $flatCombined
 }.GetNewClosure()
 
 & $renderCurrentCleanerRules
