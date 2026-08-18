@@ -11543,7 +11543,7 @@ function script:Open-WmtRegistryPathInRegedit {
         if (-not (Test-Path -LiteralPath $regeditStatePath)) {
             [void](New-Item -Path $regeditStatePath -Force)
         }
-        Set-ItemProperty -LiteralPath $regeditStatePath -Name LastKey -Value $regeditPath -Force
+        Set-ItemProperty -Path $regeditStatePath -Name LastKey -Value $regeditPath -Force
         Start-Process -FilePath "regedit.exe" | Out-Null
         return $true
     }
@@ -20474,9 +20474,7 @@ $value = if ($Enable) { 0 } else { 1 }
 $msg = if ($Enable) { "Enabled automatic driver updates." } else { "Disabled automatic driver updates." }
 Invoke-UiCommand {
     param($value, $msg)
-    $path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching"
-    if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-    Set-ItemProperty -Path $path -Name "SearchOrderConfig" -Value $value -Type DWord
+    Set-WmtRegDword "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" "SearchOrderConfig" $value
     Write-Output $msg
 } "Updating driver update policy..." -ArgumentList $value, $msg
 }
@@ -20487,9 +20485,7 @@ $value = if ($Enable) { 0 } else { 1 }
 $msg = if ($Enable) { "Device metadata downloads enabled." } else { "Device metadata downloads disabled." }
 Invoke-UiCommand {
     param($value, $msg)
-    $path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata"
-    if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-    Set-ItemProperty -Path $path -Name "PreventDeviceMetadataFromNetwork" -Value $value -Type DWord
+    Set-WmtRegDword "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata" "PreventDeviceMetadataFromNetwork" $value
     Write-Output $msg
 } "Updating device metadata policy..." -ArgumentList $value, $msg
 }
@@ -20980,13 +20976,13 @@ $btnApply.Add_Click({
         $targets = @("HKCU:\Software\Classes\*\shell\SetDesktopWallpaper", "HKCU:\Software\Classes\Directory\shell\SetDesktopWallpaper")
         try {
             foreach ($key in $targets) {
-                if (-not (Test-Path -LiteralPath $key)) { New-Item -Path $key -Force | Out-Null }
-                Set-ItemProperty -LiteralPath $key -Name "MUIVerb" -Value $txtName.Text
-                Set-ItemProperty -LiteralPath $key -Name "MultiSelectModel" -Value "Player"
-                if (-not [string]::IsNullOrWhiteSpace($txtIcon.Text)) { Set-ItemProperty -LiteralPath $key -Name "Icon" -Value $txtIcon.Text }
-                $cmdKey = Join-Path $key "command"
-                if (-not (Test-Path -LiteralPath $cmdKey)) { New-Item -Path $cmdKey -Force | Out-Null }
-                Set-Item -LiteralPath $cmdKey -Value $txtCmd.Text
+                New-WmtRegKey $key
+                Set-WmtRegString $key "MUIVerb" $txtName.Text
+                Set-WmtRegString $key "MultiSelectModel" "Player"
+                if (-not [string]::IsNullOrWhiteSpace($txtIcon.Text)) { Set-WmtRegString $key "Icon" $txtIcon.Text }
+                $cmdKey = "$key\command"
+                New-WmtRegKey $cmdKey
+                Set-WmtRegDefaultValue $cmdKey $txtCmd.Text
             }
             Show-WmtMessageBox -Owner $dialog -Message "Context Menu updated successfully!" -Title "Success" -Image Information | Out-Null
             $dialog.Close()
@@ -20997,7 +20993,7 @@ $btnApply.Add_Click({
 $btnRemove.Add_Click({
         if ((Show-WmtMessageBox -Owner $dialog -Message "Remove the custom menu item?" -Title "Confirm" -Button YesNo -Image Warning) -ne [System.Windows.MessageBoxResult]::Yes) { return }
         $targets = @("HKCU:\Software\Classes\*\shell\SetDesktopWallpaper", "HKCU:\Software\Classes\Directory\shell\SetDesktopWallpaper")
-        foreach ($key in $targets) { if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue } }
+        foreach ($key in $targets) { Remove-WmtRegKeyTree $key }
         Show-WmtMessageBox -Owner $dialog -Message "Item removed." -Title "Success" -Image Information | Out-Null
         $dialog.Close()
     }.GetNewClosure())
@@ -22662,7 +22658,7 @@ function Show-StartupRowDetails {
                         if (-not (Test-Path -LiteralPath $ctxPath)) { throw "Registry key was not found." }
                         if (-not [string]::IsNullOrWhiteSpace($newDisplayName)) {
                             Set-WmtRegistryDefaultValue -Path $ctxPath -Value $newDisplayName
-                            Set-ItemProperty -LiteralPath $ctxPath -Name "MUIVerb" -Value $newDisplayName -ErrorAction SilentlyContinue
+                            Set-ItemProperty -Path $ctxPath -Name "MUIVerb" -Value $newDisplayName -ErrorAction SilentlyContinue
                             Set-StartupCellValue $row "Name" $newDisplayName
                         }
                         if (-not [string]::IsNullOrWhiteSpace($newCommand)) {
@@ -22673,7 +22669,7 @@ function Show-StartupRowDetails {
                             Set-StartupCellValue $row "Enabled" "Yes"
                         }
                         else {
-                            Set-ItemProperty -LiteralPath $ctxPath -Name "LegacyDisable" -Value "" -ErrorAction Stop
+                            Set-ItemProperty -Path $ctxPath -Name "LegacyDisable" -Value "" -ErrorAction Stop
                             Set-StartupCellValue $row "Enabled" "No"
                         }
                     }
@@ -23078,7 +23074,7 @@ $btnTaskDelete.Add_Click({ & $fnInvokeStartupTaskSelection Delete }.GetNewClosur
 $btnCtxRefresh.Add_Click({ & $fnInvokeStartupTabLoad "Context Menu" $true }.GetNewClosure())
 $btnCtxDetails.Add_Click({ & $fnShowStartupRowDetails $ctxTab "Context Menu Details" }.GetNewClosure())
 $btnCtxEnable.Add_Click({ foreach ($row in Get-WmtDataGridSelectedRows $ctxTab.Grid) { $path = [string]$row["Path"]; if ($path -and (Test-Path -LiteralPath $path)) { Remove-ItemProperty -LiteralPath $path -Name "LegacyDisable" -ErrorAction SilentlyContinue; $row["Enabled"] = "Yes" } } }.GetNewClosure())
-$btnCtxDisable.Add_Click({ foreach ($row in Get-WmtDataGridSelectedRows $ctxTab.Grid) { $path = [string]$row["Path"]; if ($path -and (Test-Path -LiteralPath $path)) { Set-ItemProperty -LiteralPath $path -Name "LegacyDisable" -Value "" -ErrorAction SilentlyContinue; $row["Enabled"] = "No" } } }.GetNewClosure())
+$btnCtxDisable.Add_Click({ foreach ($row in Get-WmtDataGridSelectedRows $ctxTab.Grid) { $path = [string]$row["Path"]; if ($path -and (Test-Path -LiteralPath $path)) { Set-ItemProperty -Path $path -Name "LegacyDisable" -Value "" -ErrorAction SilentlyContinue; $row["Enabled"] = "No" } } }.GetNewClosure())
 $btnCtxDelete.Add_Click({
         $selected = @(Get-WmtDataGridSelectedRows $ctxTab.Grid)
         if ($selected.Count -eq 0) { return }
@@ -23117,10 +23113,7 @@ param([bool]$Enable)
 
 if ($Enable) {
     Invoke-UiCommand {
-        $path = "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
-        if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-
-        Set-ItemProperty -Path $path -Name "HwSchMode" -Value 2 -Type DWord
+        Set-WmtRegDword "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
         Write-Output "Hardware-Accelerated GPU Scheduling (HAGS) enabled. Reboot required."
 
         Set-WmtBusyCursor
@@ -23129,10 +23122,7 @@ if ($Enable) {
 }
 else {
     Invoke-UiCommand {
-        $path = "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
-        if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-
-        Set-ItemProperty -Path $path -Name "HwSchMode" -Value 1 -Type DWord
+        Set-WmtRegDword "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 1
         Write-Output "Hardware-Accelerated GPU Scheduling (HAGS) disabled. Reboot required."
 
         Set-WmtBusyCursor
@@ -23157,6 +23147,11 @@ if ($item -and $item.PSObject.Properties[$Name]) {
 return $Default
 }
 
+# --- Registry write helpers (pure .NET Microsoft.Win32.Registry API) ---
+# Every tweak write goes through these instead of the PowerShell registry provider.
+# Benefits: no provider path parsing, no glob expansion of literal subkey names like
+# '*' or '?', CreateSubKey builds the whole key chain in one call, and (Default)
+# values are written via SetValue("") without the "(Default)" provider pseudo-name.
 function Set-WmtRegDword {
 param(
     [string]$Path,
@@ -23164,8 +23159,20 @@ param(
     [int]$Value
 )
 
-if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type DWord -Force -ErrorAction SilentlyContinue
+$parts = Convert-WmtRegistryPath -Path $Path
+if (-not $parts) { return }
+$baseKey = $null
+$key = $null
+try {
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
+    $key = $baseKey.CreateSubKey($parts.SubPath)
+    if ($key) { $key.SetValue($Name, $Value, [Microsoft.Win32.RegistryValueKind]::DWord) }
+}
+catch {}
+finally {
+    if ($key) { $key.Close() }
+    if ($baseKey) { $baseKey.Close() }
+}
 }
 
 function Set-WmtRegString {
@@ -23175,8 +23182,43 @@ param(
     [string]$Value
 )
 
-if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-Set-ItemProperty -Path $Path -Name $Name -Value $Value -Force -ErrorAction SilentlyContinue
+$parts = Convert-WmtRegistryPath -Path $Path
+if (-not $parts) { return }
+$baseKey = $null
+$key = $null
+try {
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
+    $key = $baseKey.CreateSubKey($parts.SubPath)
+    if ($key) { $key.SetValue($Name, $Value, [Microsoft.Win32.RegistryValueKind]::String) }
+}
+catch {}
+finally {
+    if ($key) { $key.Close() }
+    if ($baseKey) { $baseKey.Close() }
+}
+}
+
+function Set-WmtRegBinary {
+param(
+    [string]$Path,
+    [string]$Name,
+    [byte[]]$Value
+)
+
+$parts = Convert-WmtRegistryPath -Path $Path
+if (-not $parts) { return }
+$baseKey = $null
+$key = $null
+try {
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
+    $key = $baseKey.CreateSubKey($parts.SubPath)
+    if ($key) { $key.SetValue($Name, $Value, [Microsoft.Win32.RegistryValueKind]::Binary) }
+}
+catch {}
+finally {
+    if ($key) { $key.Close() }
+    if ($baseKey) { $baseKey.Close() }
+}
 }
 
 function Remove-WmtRegValue {
@@ -23185,8 +23227,80 @@ param(
     [string]$Name
 )
 
-if (Test-Path $Path) {
-    Remove-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue
+$parts = Convert-WmtRegistryPath -Path $Path
+if (-not $parts) { return }
+$baseKey = $null
+$key = $null
+try {
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
+    $key = $baseKey.OpenSubKey($parts.SubPath, $true)
+    if ($key) { $key.DeleteValue($Name, $false) }
+}
+catch {}
+finally {
+    if ($key) { $key.Close() }
+    if ($baseKey) { $baseKey.Close() }
+}
+}
+
+function New-WmtRegKey {
+param([string]$Path)
+
+# Creates the key (and any missing parents). Literal subkey names only.
+$parts = Convert-WmtRegistryPath -Path $Path
+if (-not $parts) { return }
+$baseKey = $null
+$key = $null
+try {
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
+    $key = $baseKey.CreateSubKey($parts.SubPath)
+}
+catch {}
+finally {
+    if ($key) { $key.Close() }
+    if ($baseKey) { $baseKey.Close() }
+}
+}
+
+function Set-WmtRegDefaultValue {
+param(
+    [string]$Path,
+    [AllowNull()][AllowEmptyString()][string]$Value
+)
+
+# Sets the key's (Default) value, creating the key chain first if needed.
+$parts = Convert-WmtRegistryPath -Path $Path
+if (-not $parts) { return }
+$text = $Value
+if ($null -eq $text) { $text = "" }
+$baseKey = $null
+$key = $null
+try {
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
+    $key = $baseKey.CreateSubKey($parts.SubPath)
+    if ($key) { $key.SetValue("", $text, [Microsoft.Win32.RegistryValueKind]::String) }
+}
+catch {}
+finally {
+    if ($key) { $key.Close() }
+    if ($baseKey) { $baseKey.Close() }
+}
+}
+
+function Remove-WmtRegKeyTree {
+param([string]$Path)
+
+# Deletes a key and its whole subtree. Missing keys are ignored.
+$parts = Convert-WmtRegistryPath -Path $Path
+if (-not $parts) { return }
+$baseKey = $null
+try {
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($parts.Hive, [Microsoft.Win32.RegistryView]::Default)
+    $baseKey.DeleteSubKeyTree($parts.SubPath, $false)
+}
+catch {}
+finally {
+    if ($baseKey) { $baseKey.Close() }
 }
 }
 
@@ -23210,7 +23324,7 @@ function Set-WmtExplorerClickMode {
 param([bool]$SingleClick)
 
 $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer"
-if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
+New-WmtRegKey $path
 
 $shellState = Get-WmtRegValue $path "ShellState"
 if (-not $shellState -or $shellState.Length -lt 5) {
@@ -23218,7 +23332,7 @@ if (-not $shellState -or $shellState.Length -lt 5) {
 }
 
 $shellState[4] = if ($SingleClick) { [byte]0x1E } else { [byte]0x3E }
-Set-ItemProperty -Path $path -Name "ShellState" -Value $shellState -Type Binary -Force
+Set-WmtRegBinary $path "ShellState" $shellState
 Set-WmtRegDword $path "IconUnderline" $(if ($SingleClick) { 2 } else { 3 })
 Restart-WmtExplorer
 }
@@ -23293,13 +23407,13 @@ function Set-WmtClassicContextMenu {
 param([bool]$Enable)
 
 $clsid = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}"
-$inproc = Join-Path $clsid "InprocServer32"
+$inproc = "$clsid\InprocServer32"
 if ($Enable) {
-    if (-not (Test-Path $inproc)) { New-Item -Path $inproc -Force | Out-Null }
-    Set-Item -Path $inproc -Value "" -Force
+    New-WmtRegKey $inproc
+    Set-WmtRegDefaultValue $inproc ""
 }
 else {
-    if (Test-Path $clsid) { Remove-Item -Path $clsid -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-WmtRegKeyTree $clsid
 }
 Restart-WmtExplorer
 }
@@ -23316,15 +23430,15 @@ $targets = @(
 foreach ($target in $targets) {
     $path = $target.Path
     if ($Enable) {
-        if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-        Set-Item -Path $path -Value "Take Ownership" -Force
-        New-ItemProperty -Path $path -Name "HasLUAShield" -Value "" -PropertyType String -Force | Out-Null
-        $cmdPath = Join-Path $path "command"
-        if (-not (Test-Path $cmdPath)) { New-Item -Path $cmdPath -Force | Out-Null }
-        Set-Item -Path $cmdPath -Value $target.Command -Force
+        New-WmtRegKey $path
+        Set-WmtRegDefaultValue $path "Take Ownership"
+        Set-WmtRegString $path "HasLUAShield" ""
+        $cmdPath = "$path\command"
+        New-WmtRegKey $cmdPath
+        Set-WmtRegDefaultValue $cmdPath $target.Command
     }
     else {
-        if (Test-Path $path) { Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-WmtRegKeyTree $path
     }
 }
 }
@@ -23341,15 +23455,15 @@ $targets = @(
 foreach ($target in $targets) {
     $path = $target.Path
     if ($Enable) {
-        if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-        Set-Item -Path $path -Value "Open PowerShell Here" -Force
-        Set-ItemProperty -Path $path -Name "Icon" -Value "powershell.exe" -Force
-        $cmdPath = Join-Path $path "command"
-        if (-not (Test-Path $cmdPath)) { New-Item -Path $cmdPath -Force | Out-Null }
-        Set-Item -Path $cmdPath -Value "powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -Command `"Set-Location -LiteralPath '$($target.Location)'`"" -Force
+        New-WmtRegKey $path
+        Set-WmtRegDefaultValue $path "Open PowerShell Here"
+        Set-WmtRegString $path "Icon" "powershell.exe"
+        $cmdPath = "$path\command"
+        New-WmtRegKey $cmdPath
+        Set-WmtRegDefaultValue $cmdPath "powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -Command `"Set-Location -LiteralPath '$($target.Location)'`""
     }
     else {
-        if (Test-Path $path) { Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-WmtRegKeyTree $path
     }
 }
 }
@@ -26615,10 +26729,10 @@ try {
     $classicContext = & $getPathExists "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
     $btnToggleCtxMenu = Get-Ctrl "btnToggleCtxMenu"
     Update-WmtTweakToggle $btnToggleCtxMenu $classicContext "Classic Right-Click" "Modern Right-Click"
-    $takeOwnInstalled = & $getPathExists "HKCU:\Software\Classes\Directory\shell\WMT_TakeOwnership"
+    $takeOwnInstalled = & $getPathExists "HKCR:\Directory\shell\WMT_TakeOwnership"
     $btnToggleTakeOwnership = Get-Ctrl "btnToggleTakeOwnership"
     Update-WmtTweakToggle $btnToggleTakeOwnership $takeOwnInstalled "Add Take Ownership" "Remove Take Ownership"
-    $psHereInstalled = & $getPathExists "HKCU:\Software\Classes\Directory\Background\shell\WMT_OpenPowerShell"
+    $psHereInstalled = & $getPathExists "HKCR:\Directory\Background\shell\WMT_OpenPowerShell"
     $btnTogglePsHere = Get-Ctrl "btnTogglePsHere"
     Update-WmtTweakToggle $btnTogglePsHere $psHereInstalled "Add PowerShell Here" "Remove PowerShell Here"
 
@@ -27587,7 +27701,7 @@ $btnToggleCopilot.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $adv "ShowCopilotButton" 1) 0) -eq 0) -or ((ConvertTo-Int (Get-WmtRegValue $polUser "TurnOffWindowsCopilot" 0) 0) -eq 1))
         if ($currentlyOff) {
-            Invoke-UiCommand { Set-WmtRegDword $adv "ShowCopilotButton" 1; Remove-ItemProperty -Path $polUser -Name "TurnOffWindowsCopilot" -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $polMachine -Name "TurnOffWindowsCopilot" -ErrorAction SilentlyContinue; Write-GuiLog "Copilot enabled." } "Enabling Copilot..."
+            Invoke-UiCommand { Set-WmtRegDword $adv "ShowCopilotButton" 1; Remove-WmtRegValue $polUser "TurnOffWindowsCopilot"; Remove-WmtRegValue $polMachine "TurnOffWindowsCopilot"; Write-GuiLog "Copilot enabled." } "Enabling Copilot..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $adv "ShowCopilotButton" 0; Set-WmtRegDword $polUser "TurnOffWindowsCopilot" 1; Set-WmtRegDword $polMachine "TurnOffWindowsCopilot" 1; Write-GuiLog "Copilot disabled." } "Disabling Copilot..."
@@ -27604,7 +27718,7 @@ $btnToggleRecall.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Policies\Microsoft\Windows\WindowsAI", "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $polMachine "AllowRecallEnablement" 1) 0) -eq 0) -or ((ConvertTo-Int (Get-WmtRegValue $polUser "DisableAIDataAnalysis" 0) 0) -eq 1))
         if ($currentlyOff) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $polMachine -Name "AllowRecallEnablement" -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $polMachine -Name "TurnOffSavingSnapshots" -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $polUser -Name "DisableAIDataAnalysis" -ErrorAction SilentlyContinue; Write-GuiLog "Recall enabled (user must turn it on in Settings)." } "Enabling Recall..."
+            Invoke-UiCommand { Remove-WmtRegValue $polMachine "AllowRecallEnablement"; Remove-WmtRegValue $polMachine "TurnOffSavingSnapshots"; Remove-WmtRegValue $polUser "DisableAIDataAnalysis"; Write-GuiLog "Recall enabled (user must turn it on in Settings)." } "Enabling Recall..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $polUser "DisableAIDataAnalysis" 1; Set-WmtRegDword $polMachine "AllowRecallEnablement" 0; Set-WmtRegDword $polMachine "TurnOffSavingSnapshots" 1; Write-GuiLog "Recall disabled." } "Disabling Recall..."
@@ -27621,7 +27735,7 @@ $btnToggleClickToDo.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Policies\Microsoft\Windows\WindowsAI")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $polUser "DisableClickToDo" 0) 0) -eq 1))
         if ($currentlyOff) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $polUser -Name "DisableClickToDo" -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $polMachine -Name "DisableClickToDo" -ErrorAction SilentlyContinue; Write-GuiLog "Click To Do enabled." } "Enabling Click To Do..."
+            Invoke-UiCommand { Remove-WmtRegValue $polUser "DisableClickToDo"; Remove-WmtRegValue $polMachine "DisableClickToDo"; Write-GuiLog "Click To Do enabled." } "Enabling Click To Do..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $polUser "DisableClickToDo" 1; Set-WmtRegDword $polMachine "DisableClickToDo" 1; Write-GuiLog "Click To Do disabled." } "Disabling Click To Do..."
@@ -27637,7 +27751,7 @@ $btnToggleAISvcAutoStart.Add_Click({
         Clear-WmtRegCache @("HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $polMachine "DisableAIDataAnalysis" 0) 0) -eq 1))
         if ($currentlyOff) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $polMachine -Name "DisableAIDataAnalysis" -ErrorAction SilentlyContinue; Write-GuiLog "Windows AI service autostart enabled." } "Enabling AI service autostart..."
+            Invoke-UiCommand { Remove-WmtRegValue $polMachine "DisableAIDataAnalysis"; Write-GuiLog "Windows AI service autostart enabled." } "Enabling AI service autostart..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $polMachine "DisableAIDataAnalysis" 1; Write-GuiLog "Windows AI service autostart disabled." } "Disabling AI service autostart..."
@@ -27749,7 +27863,7 @@ $btnToggleDeviceAutoApp.Add_Click({
         Clear-WmtRegCache @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeviceInstall\Settings")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $p "DisableDeviceAutoInstall" 0) 0) -eq 1))
         if ($currentlyOff) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $p -Name "DisableDeviceAutoInstall" -ErrorAction SilentlyContinue; Write-GuiLog "Device auto-app download enabled." } "Enabling device auto-apps..."
+            Invoke-UiCommand { Remove-WmtRegValue $p "DisableDeviceAutoInstall"; Write-GuiLog "Device auto-app download enabled." } "Enabling device auto-apps..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $p "DisableDeviceAutoInstall" 1; Write-GuiLog "Device auto-app download disabled." } "Disabling device auto-apps..."
@@ -27814,7 +27928,7 @@ $btnToggleHomeExplorer.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced")
         $currentlyHidden = (((ConvertTo-Int (Get-WmtRegValue $pUser "ShowHomeFolder" 1) 0) -eq 0) -or ((ConvertTo-Int (Get-WmtRegValue $pMachine "Start_HomeClassicMode" 0) 0) -eq 1))
         if ($currentlyHidden) {
-            Invoke-UiCommand { Set-WmtRegDword $pUser "ShowHomeFolder" 1; Remove-ItemProperty -Path $pMachine -Name "Start_HomeClassicMode" -ErrorAction SilentlyContinue; Write-GuiLog "File Explorer Home shown." } "Showing Home..."
+            Invoke-UiCommand { Set-WmtRegDword $pUser "ShowHomeFolder" 1; Remove-WmtRegValue $pMachine "Start_HomeClassicMode"; Write-GuiLog "File Explorer Home shown." } "Showing Home..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $pUser "ShowHomeFolder" 0; Set-WmtRegDword $pMachine "Start_HomeClassicMode" 1; Write-GuiLog "File Explorer Home hidden." } "Hiding Home..."
@@ -27847,10 +27961,10 @@ $btnToggle3DObjects.Add_Click({
         Clear-WmtRegCache @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FolderDescriptions\{31C0DD25-9439-4F12-BF41-7FF4EDA38762}\PropertyBag")
         $currentlyHidden = (((ConvertTo-Str (Get-WmtRegValue $p "ThisPCPolicy" "Show") "") -ne "Show"))
         if ($currentlyHidden) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "ThisPCPolicy" -Value "Show" -Force; Write-GuiLog "3D Objects folder shown." } "Showing 3D Objects..."
+            Invoke-UiCommand { Set-WmtRegString $p "ThisPCPolicy" "Show"; Write-GuiLog "3D Objects folder shown." } "Showing 3D Objects..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "ThisPCPolicy" -Value "Hide" -Force; Write-GuiLog "3D Objects folder hidden." } "Hiding 3D Objects..."
+            Invoke-UiCommand { Set-WmtRegString $p "ThisPCPolicy" "Hide"; Write-GuiLog "3D Objects folder hidden." } "Hiding 3D Objects..."
         }
         Update-WmtTweakToggle $btnToggle3DObjects (-not $currentlyHidden) "Show 3D Objects" "Hide 3D Objects"
     })
@@ -28058,7 +28172,7 @@ $btnToggleBitlocker.Add_Click({
         Clear-WmtRegCache @("HKLM:\SYSTEM\CurrentControlSet\Control\BitLocker")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $p "PreventDeviceEncryption" 0) 0) -eq 1))
         if ($currentlyOff) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $p -Name "PreventDeviceEncryption" -ErrorAction SilentlyContinue; Write-GuiLog "Bitlocker auto-encryption restored to default." } "Enabling Bitlocker auto..."
+            Invoke-UiCommand { Remove-WmtRegValue $p "PreventDeviceEncryption"; Write-GuiLog "Bitlocker auto-encryption restored to default." } "Enabling Bitlocker auto..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $p "PreventDeviceEncryption" 1; Write-GuiLog "Bitlocker auto-encryption disabled for new OS installs." } "Disabling Bitlocker auto..."
@@ -28074,10 +28188,10 @@ $btnToggleStickyKeys.Add_Click({
         Clear-WmtRegCache @("HKCU:\Control Panel\Accessibility\StickyKeys")
         $currentlyOff = (((ConvertTo-Str (Get-WmtRegValue $p "Flags" "510") "") -ne "510"))
         if ($currentlyOff) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Flags" -Value "510" -Force; Write-GuiLog "Sticky Keys shortcut enabled." } "Enabling Sticky Keys..."
+            Invoke-UiCommand { Set-WmtRegString $p "Flags" "510"; Write-GuiLog "Sticky Keys shortcut enabled." } "Enabling Sticky Keys..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Flags" -Value "58" -Force; Write-GuiLog "Sticky Keys shortcut disabled." } "Disabling Sticky Keys..."
+            Invoke-UiCommand { Set-WmtRegString $p "Flags" "58"; Write-GuiLog "Sticky Keys shortcut disabled." } "Disabling Sticky Keys..."
         }
         Update-WmtTweakToggle $btnToggleStickyKeys (-not $currentlyOff) "Sticky Keys On" "Sticky Keys Off"
     })
@@ -28139,7 +28253,7 @@ $btnToggleStartAllApps.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer")
         $currentlyHidden = (((ConvertTo-Int (Get-WmtRegValue $pUser "Start_ShowAllApps" 0) 0) -eq 1) -or ((ConvertTo-Int (Get-WmtRegValue $pPol "HideStartAllApps" 0) 0) -eq 1))
         if ($currentlyHidden) {
-            Invoke-UiCommand { Set-WmtRegDword $pUser "Start_ShowAllApps" 0; Remove-ItemProperty -Path $pPol -Name "HideStartAllApps" -ErrorAction SilentlyContinue; Write-GuiLog "Start menu All Apps list shown." } "Showing All Apps..."
+            Invoke-UiCommand { Set-WmtRegDword $pUser "Start_ShowAllApps" 0; Remove-WmtRegValue $pPol "HideStartAllApps"; Write-GuiLog "Start menu All Apps list shown." } "Showing All Apps..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $pUser "Start_ShowAllApps" 1; Set-WmtRegDword $pPol "HideStartAllApps" 1; Write-GuiLog "Start menu All Apps list hidden." } "Hiding All Apps..."
@@ -28190,7 +28304,7 @@ $btnToggleIPv6.Add_Click({
         Clear-WmtRegCache @("HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $p "DisabledComponents" 0) 0) -band 0xFF) -ne 0)
         if ($currentlyOff) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $p -Name "DisabledComponents" -ErrorAction SilentlyContinue; Write-GuiLog "IPv6 enabled (reboot required)." } "Enabling IPv6..."
+            Invoke-UiCommand { Remove-WmtRegValue $p "DisabledComponents"; Write-GuiLog "IPv6 enabled (reboot required)." } "Enabling IPv6..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $p "DisabledComponents" 255; Write-GuiLog "IPv6 disabled (reboot required)." } "Disabling IPv6..."
@@ -28272,7 +28386,7 @@ $btnToggleDiagData.Add_Click({
         Clear-WmtRegCache @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection", "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection")
         $currentlyRequired = (((ConvertTo-Int (Get-WmtRegValue $p1 "AllowTelemetry" 3) 0) -le 1) -or ((ConvertTo-Int (Get-WmtRegValue $p2 "AllowTelemetry" 3) 0) -le 1))
         if ($currentlyRequired) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $p1 -Name "AllowTelemetry" -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $p2 -Name "AllowTelemetry" -ErrorAction SilentlyContinue; Write-GuiLog "Diagnostic data restored to default (Optional)." } "Restoring default diagnostic data..."
+            Invoke-UiCommand { Remove-WmtRegValue $p1 "AllowTelemetry"; Remove-WmtRegValue $p2 "AllowTelemetry"; Write-GuiLog "Diagnostic data restored to default (Optional)." } "Restoring default diagnostic data..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $p1 "AllowTelemetry" 1; Set-WmtRegDword $p2 "AllowTelemetry" 1; Write-GuiLog "Diagnostic data set to Required only." } "Setting diagnostic data to required..."
@@ -28321,10 +28435,10 @@ $btnToggleAppDiagnostics.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\appDiagnostics")
         $currentlyOff = (((ConvertTo-Str (Get-WmtRegValue $p "Value" "Allow") "") -ne "Allow"))
         if ($currentlyOff) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Value" -Value "Allow" -Force; Write-GuiLog "App diagnostics access enabled." } "Enabling app diagnostics..."
+            Invoke-UiCommand { Set-WmtRegString $p "Value" "Allow"; Write-GuiLog "App diagnostics access enabled." } "Enabling app diagnostics..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Value" -Value "Deny" -Force; Write-GuiLog "App diagnostics access disabled." } "Disabling app diagnostics..."
+            Invoke-UiCommand { Set-WmtRegString $p "Value" "Deny"; Write-GuiLog "App diagnostics access disabled." } "Disabling app diagnostics..."
         }
         Update-WmtTweakToggle $btnToggleAppDiagnostics (-not $currentlyOff) "App Diagnostics On" "App Diagnostics Off"
     })
@@ -28353,7 +28467,7 @@ $btnToggleFeedbackNotify.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Microsoft\Siuf\Rules")
         $currentlyOff = (((ConvertTo-Int (Get-WmtRegValue $p "NumberOfSIUFInPeriod" -1) 0) -eq 0))
         if ($currentlyOff) {
-            Invoke-UiCommand { Remove-ItemProperty -Path $p -Name "NumberOfSIUFInPeriod" -ErrorAction SilentlyContinue; Remove-ItemProperty -Path $p -Name "PeriodInNanoSeconds" -ErrorAction SilentlyContinue; Write-GuiLog "Feedback notifications enabled." } "Enabling feedback notifications..."
+            Invoke-UiCommand { Remove-WmtRegValue $p "NumberOfSIUFInPeriod"; Remove-WmtRegValue $p "PeriodInNanoSeconds"; Write-GuiLog "Feedback notifications enabled." } "Enabling feedback notifications..."
         }
         else {
             Invoke-UiCommand { Set-WmtRegDword $p "NumberOfSIUFInPeriod" 0; Set-WmtRegDword $p "PeriodInNanoSeconds" 0; Write-GuiLog "Feedback notifications disabled." } "Disabling feedback notifications..."
@@ -28386,10 +28500,10 @@ $btnToggleCEIP.Add_Click({
         Clear-WmtRegCache @("HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows")
         $currentlyOff = (((ConvertTo-Str (Get-WmtRegValue $p "CEIPEnable" "1") "") -ne "1"))
         if ($currentlyOff) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "CEIPEnable" -Value "1" -Force; Write-GuiLog "Customer Experience Improvement Program enabled." } "Enabling CEIP..."
+            Invoke-UiCommand { Set-WmtRegString $p "CEIPEnable" "1"; Write-GuiLog "Customer Experience Improvement Program enabled." } "Enabling CEIP..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "CEIPEnable" -Value "0" -Force; Write-GuiLog "Customer Experience Improvement Program disabled." } "Disabling CEIP..."
+            Invoke-UiCommand { Set-WmtRegString $p "CEIPEnable" "0"; Write-GuiLog "Customer Experience Improvement Program disabled." } "Disabling CEIP..."
         }
         Update-WmtTweakToggle $btnToggleCEIP (-not $currentlyOff) "CEIP On" "CEIP Off"
     })
@@ -28463,14 +28577,14 @@ $btnToggleCmdHere.Add_Click({
         $p = "HKCU:\Software\Classes\Directory\shell\WmtCmdHere"
         $exists = (Get-WmtRegistryPathExists -Path $p)
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Open CMD Here removed." } "Removing CMD Here..."
+            Invoke-UiCommand { Remove-WmtRegKeyTree $p; Write-GuiLog "Open CMD Here removed." } "Removing CMD Here..."
         }
         else {
             Invoke-UiCommand {
-                New-Item -Path $p -Force | Out-Null
-                Set-ItemProperty -LiteralPath $p -Name "(Default)" -Value "Open Command Prompt Here" -Force
-                New-Item -Path "$p\command" -Force | Out-Null
-                Set-ItemProperty -LiteralPath "$p\command" -Name "(Default)" -Value 'cmd.exe /k "cd %V"' -Force
+                New-WmtRegKey $p
+                Set-WmtRegDefaultValue $p "Open Command Prompt Here"
+                New-WmtRegKey "$p\command"
+                Set-WmtRegDefaultValue "$p\command" 'cmd.exe /k "cd %V"' 
                 Write-GuiLog "Open CMD Here added."
             } "Adding CMD Here..."
         }
@@ -28486,15 +28600,15 @@ $btnToggleNotepadCtx.Add_Click({
         # expensive recursive enumeration on the registry provider (hang 0xCFFFFFFF).
         $exists = Get-WmtRegistryPathExists -Path $p
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Open with Notepad removed." } "Removing Notepad menu..."
+            Invoke-UiCommand { Remove-WmtRegKeyTree $p; Write-GuiLog "Open with Notepad removed." } "Removing Notepad menu..."
         }
         else {
             Invoke-UiCommand {
-                New-Item -Path $p -Force | Out-Null
-                Set-ItemProperty -LiteralPath $p -Name "(Default)" -Value "Open with Notepad" -Force
-                Set-ItemProperty -LiteralPath $p -Name "Icon" -Value "notepad.exe" -Force
-                New-Item -Path "$p\command" -Force | Out-Null
-                Set-ItemProperty -LiteralPath "$p\command" -Name "(Default)" -Value 'notepad.exe "%1"' -Force
+                New-WmtRegKey $p
+                Set-WmtRegDefaultValue $p "Open with Notepad"
+                Set-WmtRegString $p "Icon" "notepad.exe"
+                New-WmtRegKey "$p\command"
+                Set-WmtRegDefaultValue "$p\command" 'notepad.exe "%1"' 
                 Write-GuiLog "Open with Notepad added."
             } "Adding Notepad menu..."
         }
@@ -28508,18 +28622,18 @@ $btnToggleRemovePrint.Add_Click({
         $p = "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print"
         $exists = (Get-WmtRegistryPathExists -Path $p)
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Print removed from image context menu." } "Removing Print..."
+            Invoke-UiCommand { Remove-WmtRegKeyTree $p; Write-GuiLog "Print removed from image context menu." } "Removing Print..."
         }
         else {
             Invoke-UiCommand {
-                New-Item -Path $p -Force | Out-Null
-                Set-ItemProperty -LiteralPath $p -Name "(Default)" -Value "Print" -Force
-                New-Item -Path "$p\command" -Force | Out-Null
-                Set-ItemProperty -LiteralPath "$p\command" -Name "(Default)" -Value 'mspaint.exe /pt "%1"' -Force
+                New-WmtRegKey $p
+                Set-WmtRegDefaultValue $p "Print"
+                New-WmtRegKey "$p\command"
+                Set-WmtRegDefaultValue "$p\command" 'mspaint.exe /pt "%1"' 
                 Write-GuiLog "Print restored to image context menu."
             } "Restoring Print..."
         }
-        Update-WmtTweakToggle $btnToggleRemovePrint (-not $exists) "Restore Print" "Remove Print"
+        Update-WmtTweakToggle $btnToggleRemovePrint $exists "Restore Print" "Remove Print"
     })
 }
 
@@ -28529,12 +28643,12 @@ $btnToggleRemoveCast.Add_Click({
         $p = "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice"
         $exists = (Get-WmtRegistryPathExists -Path $p)
         if ($exists) {
-            Invoke-UiCommand { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Cast to Device removed." } "Removing Cast to Device..."
+            Invoke-UiCommand { Remove-WmtRegKeyTree $p; Write-GuiLog "Cast to Device removed." } "Removing Cast to Device..."
         }
         else {
-            Invoke-UiCommand { New-Item -Path $p -Force | Out-Null; Write-GuiLog "Cast to Device restored." } "Restoring Cast to Device..."
+            Invoke-UiCommand { New-WmtRegKey $p; Write-GuiLog "Cast to Device restored." } "Restoring Cast to Device..."
         }
-        Update-WmtTweakToggle $btnToggleRemoveCast (-not $exists) "Restore Cast to Device" "Remove Cast to Device"
+        Update-WmtTweakToggle $btnToggleRemoveCast $exists "Restore Cast to Device" "Remove Cast to Device"
     })
 }
 
@@ -28562,10 +28676,10 @@ $btnToggleNotifySound.Add_Click({
         Clear-WmtRegCache @("HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Default\.current")
         $currentlyOff = (((ConvertTo-Str (Get-WmtRegValue $p "(Default)" "") "") -eq ""))
         if ($currentlyOff) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "(Default)" -Value ".default" -Force -ErrorAction SilentlyContinue; Write-GuiLog "Notification sounds enabled." } "Enabling notification sounds..."
+            Invoke-UiCommand { Set-WmtRegDefaultValue $p ".default"; Write-GuiLog "Notification sounds enabled." } "Enabling notification sounds..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "(Default)" -Value "" -Force -ErrorAction SilentlyContinue; Write-GuiLog "Notification sounds disabled." } "Disabling notification sounds..."
+            Invoke-UiCommand { Set-WmtRegDefaultValue $p ""; Write-GuiLog "Notification sounds disabled." } "Disabling notification sounds..."
         }
         Update-WmtTweakToggle $btnToggleNotifySound (-not $currentlyOff) "Notification Sound On" "Notification Sound Off"
     })
@@ -28578,10 +28692,10 @@ $btnToggleDeviceSound.Add_Click({
         Clear-WmtRegCache @("HKCU:\AppEvents\Schemes\Apps\.Default\DeviceConnect\.current")
         $currentlyOff = (((ConvertTo-Str (Get-WmtRegValue $p "(Default)" "") "") -eq ""))
         if ($currentlyOff) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "(Default)" -Value ".default" -Force -ErrorAction SilentlyContinue; Write-GuiLog "Device connect sounds enabled." } "Enabling device connect sounds..."
+            Invoke-UiCommand { Set-WmtRegDefaultValue $p ".default"; Write-GuiLog "Device connect sounds enabled." } "Enabling device connect sounds..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "(Default)" -Value "" -Force -ErrorAction SilentlyContinue; Write-GuiLog "Device connect sounds disabled." } "Disabling device connect sounds..."
+            Invoke-UiCommand { Set-WmtRegDefaultValue $p ""; Write-GuiLog "Device connect sounds disabled." } "Disabling device connect sounds..."
         }
         Update-WmtTweakToggle $btnToggleDeviceSound (-not $currentlyOff) "Device Connect Sound On" "Device Connect Sound Off"
     })
@@ -28594,10 +28708,10 @@ $btnToggleSpatialAudio.Add_Click({
         Clear-WmtRegCache @("HKCU:\Software\Microsoft\Windows\CurrentVersion\SpatialSound")
         $currentlyOn = (((ConvertTo-Str (Get-WmtRegValue $p "SpatialAudioFormat" "") "") -ne ""))
         if ($currentlyOn) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "SpatialAudioFormat" -Value "" -Force; Write-GuiLog "Spatial audio disabled." } "Disabling spatial audio..."
+            Invoke-UiCommand { Set-WmtRegString $p "SpatialAudioFormat" ""; Write-GuiLog "Spatial audio disabled." } "Disabling spatial audio..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "SpatialAudioFormat" -Value "{BFAA7649-6F43-4681-A7D1-5D218CA2F2E8}" -Force; Write-GuiLog "Spatial audio (Windows Sonic) enabled." } "Enabling spatial audio..."
+            Invoke-UiCommand { Set-WmtRegString $p "SpatialAudioFormat" "{BFAA7649-6F43-4681-A7D1-5D218CA2F2E8}"; Write-GuiLog "Spatial audio (Windows Sonic) enabled." } "Enabling spatial audio..."
         }
         Update-WmtTweakToggle $btnToggleSpatialAudio (-not $currentlyOn) "Spatial Audio On" "Spatial Audio Off"
     })
@@ -28643,10 +28757,10 @@ $btnToggleFilterKeys.Add_Click({
         Clear-WmtRegCache @("HKCU:\Control Panel\Accessibility\Keyboard Response")
         $currentlyOn = (((ConvertTo-Str (Get-WmtRegValue $p "Flags" "122") "") -match "63"))
         if ($currentlyOn) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Flags" -Value "122" -Force; Write-GuiLog "Filter Keys disabled." } "Disabling Filter Keys..."
+            Invoke-UiCommand { Set-WmtRegString $p "Flags" "122"; Write-GuiLog "Filter Keys disabled." } "Disabling Filter Keys..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Flags" -Value "63" -Force; Write-GuiLog "Filter Keys enabled." } "Enabling Filter Keys..."
+            Invoke-UiCommand { Set-WmtRegString $p "Flags" "63"; Write-GuiLog "Filter Keys enabled." } "Enabling Filter Keys..."
         }
         Update-WmtTweakToggle $btnToggleFilterKeys (-not $currentlyOn) "Filter Keys Off" "Filter Keys On"
     })
@@ -28659,10 +28773,10 @@ $btnToggleToggleKeys.Add_Click({
         Clear-WmtRegCache @("HKCU:\Control Panel\Accessibility\ToggleKeys")
         $currentlyOn = (((ConvertTo-Str (Get-WmtRegValue $p "Flags" "58") "") -match "63"))
         if ($currentlyOn) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Flags" -Value "58" -Force; Write-GuiLog "Toggle Keys disabled." } "Disabling Toggle Keys..."
+            Invoke-UiCommand { Set-WmtRegString $p "Flags" "58"; Write-GuiLog "Toggle Keys disabled." } "Disabling Toggle Keys..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p -Name "Flags" -Value "63" -Force; Write-GuiLog "Toggle Keys enabled." } "Enabling Toggle Keys..."
+            Invoke-UiCommand { Set-WmtRegString $p "Flags" "63"; Write-GuiLog "Toggle Keys enabled." } "Enabling Toggle Keys..."
         }
         Update-WmtTweakToggle $btnToggleToggleKeys (-not $currentlyOn) "Toggle Keys Off" "Toggle Keys On"
     })
@@ -28676,10 +28790,10 @@ $btnToggleNumLockStartup.Add_Click({
         Clear-WmtRegCache @("HKCU:\Control Panel\Keyboard")
         $currentlyOn = (((ConvertTo-Str (Get-WmtRegValue $p1 "InitialKeyboardIndicators" "2") "") -eq "2"))
         if ($currentlyOn) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p1 -Name "InitialKeyboardIndicators" -Value "0" -Force; Set-ItemProperty -Path $p2 -Name "InitialKeyboardIndicators" -Value "0" -Force -ErrorAction SilentlyContinue; Write-GuiLog "NumLock at startup disabled." } "Disabling NumLock at startup..."
+            Invoke-UiCommand { Set-WmtRegString $p1 "InitialKeyboardIndicators" "0"; Set-WmtRegString $p2 "InitialKeyboardIndicators" "0"; Write-GuiLog "NumLock at startup disabled." } "Disabling NumLock at startup..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p1 -Name "InitialKeyboardIndicators" -Value "2" -Force; Set-ItemProperty -Path $p2 -Name "InitialKeyboardIndicators" -Value "2" -Force -ErrorAction SilentlyContinue; Write-GuiLog "NumLock at startup enabled." } "Enabling NumLock at startup..."
+            Invoke-UiCommand { Set-WmtRegString $p1 "InitialKeyboardIndicators" "2"; Set-WmtRegString $p2 "InitialKeyboardIndicators" "2"; Write-GuiLog "NumLock at startup enabled." } "Enabling NumLock at startup..."
         }
         Update-WmtTweakToggle $btnToggleNumLockStartup (-not $currentlyOn) "NumLock Startup Off" "NumLock at Startup"
     })
@@ -28693,10 +28807,10 @@ $btnToggleCapsLockStartup.Add_Click({
         Clear-WmtRegCache @("HKCU:\Control Panel\Keyboard")
         $currentlyOn = (((ConvertTo-Str (Get-WmtRegValue $p1 "InitialKeyboardIndicators" "2") "") -eq "2147483650"))
         if ($currentlyOn) {
-            Invoke-UiCommand { Set-ItemProperty -Path $p1 -Name "InitialKeyboardIndicators" -Value "2" -Force; Set-ItemProperty -Path $p2 -Name "InitialKeyboardIndicators" -Value "2" -Force -ErrorAction SilentlyContinue; Write-GuiLog "CapsLock at startup disabled." } "Disabling CapsLock at startup..."
+            Invoke-UiCommand { Set-WmtRegString $p1 "InitialKeyboardIndicators" "2"; Set-WmtRegString $p2 "InitialKeyboardIndicators" "2"; Write-GuiLog "CapsLock at startup disabled." } "Disabling CapsLock at startup..."
         }
         else {
-            Invoke-UiCommand { Set-ItemProperty -Path $p1 -Name "InitialKeyboardIndicators" -Value "2147483650" -Force; Set-ItemProperty -Path $p2 -Name "InitialKeyboardIndicators" -Value "2147483650" -Force -ErrorAction SilentlyContinue; Write-GuiLog "CapsLock at startup enabled." } "Enabling CapsLock at startup..."
+            Invoke-UiCommand { Set-WmtRegString $p1 "InitialKeyboardIndicators" "2147483650"; Set-WmtRegString $p2 "InitialKeyboardIndicators" "2147483650"; Write-GuiLog "CapsLock at startup enabled." } "Enabling CapsLock at startup..."
         }
         Update-WmtTweakToggle $btnToggleCapsLockStartup (-not $currentlyOn) "CapsLock Startup Off" "CapsLock at Startup"
     })
@@ -40689,8 +40803,8 @@ param([int]$Scale)
 $p = "HKCU:\Control Panel\Desktop"
 $logPixels = @{ 100 = 96; 125 = 120; 150 = 144; 175 = 168; 200 = 192 }
 if (-not $logPixels.ContainsKey($Scale)) { Write-GuiLog "Unsupported scale $Scale%."; return }
-Set-ItemProperty -Path $p -Name "Win8DpiScaling" -Value 1 -Type DWord -Force
-Set-ItemProperty -Path $p -Name "LogPixels" -Value $logPixels[$Scale] -Type DWord -Force
+Set-WmtRegDword $p "Win8DpiScaling" 1
+Set-WmtRegDword $p "LogPixels" $logPixels[$Scale]
 Write-GuiLog "Display scale set to $Scale% (log off / restart to apply)."
 }
 
@@ -40830,9 +40944,9 @@ if ($btnTasksView) { $btnTasksView.Add_Click({
 # --- WINDOWS UPDATE PRESETS ---
 if ($btnWUDefault) { $btnWUDefault.Add_Click({
     Invoke-UiCommand {
-        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DeferFeatureUpdates" -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DeferQualityUpdates" -ErrorAction SilentlyContinue
+        Remove-WmtRegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoUpdate"
+        Remove-WmtRegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "DeferFeatureUpdates"
+        Remove-WmtRegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "DeferQualityUpdates"
         Set-Service -Name wuauserv -StartupType Automatic -ErrorAction SilentlyContinue
         Start-Service -Name wuauserv -ErrorAction SilentlyContinue
         Write-GuiLog "Windows Update set to Default."
@@ -40841,10 +40955,9 @@ if ($btnWUDefault) { $btnWUDefault.Add_Click({
 
 if ($btnWUSecurity) { $btnWUSecurity.Add_Click({
     Invoke-UiCommand {
-        New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Force | Out-Null
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DeferFeatureUpdates" -Value 1
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DeferFeatureUpdatesPeriodInDays" -Value 365
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 0 -ErrorAction SilentlyContinue
+        Set-WmtRegDword "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "DeferFeatureUpdates" 1
+        Set-WmtRegDword "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "DeferFeatureUpdatesPeriodInDays" 365
+        Set-WmtRegDword "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoUpdate" 0
         Set-Service -Name wuauserv -StartupType Automatic -ErrorAction SilentlyContinue
         Write-GuiLog "Windows Update set to Security Only (deferring features)."
     } "Applying security-only update settings..."
@@ -40855,8 +40968,7 @@ if ($btnWUDisable) { $btnWUDisable.Add_Click({
         Invoke-UiCommand {
             Set-Service -Name wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
             Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
-            New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Force | Out-Null
-            Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 1
+            Set-WmtRegDword "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoUpdate" 1
             Write-GuiLog "Windows Update DISABLED."
         } "Disabling Windows Update..."
     }
@@ -41013,12 +41125,23 @@ $btnToggleClickMode.Add_Click({
 $btnToggleCtxMenu = Get-Ctrl "btnToggleCtxMenu"
 if ($btnToggleCtxMenu) {
 $btnToggleCtxMenu.Add_Click({
-        $classicInstalled = Test-Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
+        $clsidKey = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}"
+        $inprocKey = "$clsidKey\InprocServer32"
+        $classicInstalled = Get-WmtRegistryPathExists -Path $inprocKey
         if ($classicInstalled) {
-            Invoke-UiCommand { Remove-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Modern context menu restored." } "Restoring modern menu..."
+            Invoke-UiCommand {
+                Remove-WmtRegKeyTree $clsidKey
+                Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+                Write-GuiLog "Modern context menu restored."
+            } "Restoring modern menu..."
         }
         else {
-            Invoke-UiCommand { New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Force | Out-Null; New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Force | Out-Null; Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Name "(Default)" -Value "C:\Windows\System32\Windows.UI.FileExplorer.dll" -Force; Write-GuiLog "Classic context menu enabled." } "Enabling classic menu..."
+            Invoke-UiCommand {
+                New-WmtRegKey $inprocKey
+                Set-WmtRegDefaultValue $inprocKey ""
+                Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+                Write-GuiLog "Classic context menu enabled."
+            } "Enabling classic menu..."
         }
         Update-WmtTweakToggle $btnToggleCtxMenu (-not $classicInstalled) "Classic Right-Click" "Modern Right-Click"
     })
@@ -41027,12 +41150,30 @@ $btnToggleCtxMenu.Add_Click({
 $btnToggleTakeOwnership = Get-Ctrl "btnToggleTakeOwnership"
 if ($btnToggleTakeOwnership) {
 $btnToggleTakeOwnership.Add_Click({
-        $installed = Test-Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership"
+        $installed = Get-WmtRegistryPathExists -Path "HKCR:\Directory\shell\WMT_TakeOwnership"
         if ($installed) {
-            Invoke-UiCommand { Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership" -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "Take Ownership context menu removed." } "Removing Take Ownership..."
+            Invoke-UiCommand {
+                Remove-WmtRegKeyTree "HKCR:\*\shell\WMT_TakeOwnership"
+                Remove-WmtRegKeyTree "HKCR:\Directory\shell\WMT_TakeOwnership"
+                Remove-WmtRegKeyTree "HKCR:\Drive\shell\WMT_TakeOwnership"
+                Write-GuiLog "Take Ownership context menu removed."
+            } "Removing Take Ownership..."
         }
         else {
-            Invoke-UiCommand { New-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\*\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership" -Name "(Default)" -Value "Take Ownership" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Drive\shell\WMT_TakeOwnership\command" -Name "(Default)" -Value 'powershell -windowstyle hidden -command "Start-Process cmd -ArgumentList ''/c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'' -Verb runAs"' -Force; Write-GuiLog "Take Ownership context menu added (files, folders, drives)." } "Adding Take Ownership..."
+            Invoke-UiCommand {
+                $cmds = [ordered]@{
+                    "HKCR:\*\shell\WMT_TakeOwnership"         = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd.exe -Verb RunAs -ArgumentList ''/c takeown /f ""%1"" /a && icacls ""%1"" /grant *S-1-5-32-544:F /c && pause''"'
+                    "HKCR:\Directory\shell\WMT_TakeOwnership" = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd.exe -Verb RunAs -ArgumentList ''/c takeown /f ""%1"" /r /d y /a && icacls ""%1"" /grant *S-1-5-32-544:F /t /c && pause''"'
+                    "HKCR:\Drive\shell\WMT_TakeOwnership"     = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd.exe -Verb RunAs -ArgumentList ''/c takeown /f ""%1"" /r /d y /a && icacls ""%1"" /grant *S-1-5-32-544:F /t /c && pause''"'
+                }
+                foreach ($hivePath in $cmds.Keys) {
+                    New-WmtRegKey $hivePath
+                    Set-WmtRegDefaultValue $hivePath "Take Ownership"
+                    New-WmtRegKey "$hivePath\command"
+                    Set-WmtRegDefaultValue "$hivePath\command" $cmds[$hivePath]
+                }
+                Write-GuiLog "Take Ownership context menu added (files, folders, drives)."
+            } "Adding Take Ownership..."
         }
         Update-WmtTweakToggle $btnToggleTakeOwnership (-not $installed) "Add Take Ownership" "Remove Take Ownership"
     })
@@ -41041,12 +41182,22 @@ $btnToggleTakeOwnership.Add_Click({
 $btnTogglePsHere = Get-Ctrl "btnTogglePsHere"
 if ($btnTogglePsHere) {
 $btnTogglePsHere.Add_Click({
-        $installed = Test-Path "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\WMT_OpenPowerShell"
+        $regPath = "HKCR:\Directory\Background\shell\WMT_OpenPowerShell"
+        $installed = Get-WmtRegistryPathExists -Path $regPath
         if ($installed) {
-            Invoke-UiCommand { Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\WMT_OpenPowerShell" -Recurse -Force -ErrorAction SilentlyContinue; Write-GuiLog "PowerShell Here context menu removed." } "Removing PowerShell Here..."
+            Invoke-UiCommand {
+                Remove-WmtRegKeyTree $regPath
+                Write-GuiLog "PowerShell Here context menu removed."
+            } "Removing PowerShell Here..."
         }
         else {
-            Invoke-UiCommand { New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\WMT_OpenPowerShell" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\WMT_OpenPowerShell" -Name "(Default)" -Value "Open PowerShell Here" -Force; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\WMT_OpenPowerShell" -Name "Icon" -Value "powershell.exe" -Force; New-Item -Path "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\WMT_OpenPowerShell\command" -Force | Out-Null; Set-ItemProperty -Path "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\WMT_OpenPowerShell\command" -Name "(Default)" -Value "powershell.exe -NoExit -Command Set-Location -LiteralPath "%V"" -Force; Write-GuiLog "PowerShell Here context menu added." } "Adding PowerShell Here..."
+            Invoke-UiCommand {
+                New-WmtRegKey "$regPath\command"
+                Set-WmtRegDefaultValue $regPath "Open PowerShell Here"
+                Set-WmtRegString $regPath "Icon" "powershell.exe"
+                Set-WmtRegDefaultValue "$regPath\command" 'powershell.exe -NoExit -Command "Set-Location -LiteralPath ''%V''"'
+                Write-GuiLog "PowerShell Here context menu added."
+            } "Adding PowerShell Here..."
         }
         Update-WmtTweakToggle $btnTogglePsHere (-not $installed) "Add PowerShell Here" "Remove PowerShell Here"
     })
@@ -42666,9 +42817,9 @@ $btnToggleClockFormat.Add_Click({
         Add-Type -Namespace Win32 -Name Native -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)] public static extern bool SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);' -ErrorAction SilentlyContinue
         if ($is24) {
             Invoke-UiCommand {
-                Set-ItemProperty -Path $intlPath -Name "iTime" -Value 0 -Force
-                Set-ItemProperty -Path $intlPath -Name "sTimeFormat" -Value "h:mm tt" -Force
-                Set-ItemProperty -Path $intlPath -Name "sShortTime" -Value "h:mm tt" -Force
+                Set-WmtRegString $intlPath "iTime" "0"
+                Set-WmtRegString $intlPath "sTimeFormat" "h:mm tt"
+                Set-WmtRegString $intlPath "sShortTime" "h:mm tt"
                 $HWND_BROADCAST = [IntPtr]0xffff
                 $WM_SETTINGCHANGE = 0x1A
                 $result = [IntPtr]::Zero
@@ -42678,9 +42829,9 @@ $btnToggleClockFormat.Add_Click({
         }
         else {
             Invoke-UiCommand {
-                Set-ItemProperty -Path $intlPath -Name "iTime" -Value 1 -Force
-                Set-ItemProperty -Path $intlPath -Name "sTimeFormat" -Value "H:mm" -Force
-                Set-ItemProperty -Path $intlPath -Name "sShortTime" -Value "H:mm" -Force
+                Set-WmtRegString $intlPath "iTime" "1"
+                Set-WmtRegString $intlPath "sTimeFormat" "H:mm"
+                Set-WmtRegString $intlPath "sShortTime" "H:mm"
                 $HWND_BROADCAST = [IntPtr]0xffff
                 $WM_SETTINGCHANGE = 0x1A
                 $result = [IntPtr]::Zero
@@ -43093,8 +43244,8 @@ $ps = New-WmtPooledPowerShell
 
         $pathChecks = @{
             "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
-            "HKCU:\Software\Classes\Directory\shell\WMT_TakeOwnership" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\shell\WMT_TakeOwnership"
-            "HKCU:\Software\Classes\Directory\Background\shell\WMT_OpenPowerShell" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\Background\shell\WMT_OpenPowerShell"
+            "HKCR:\Directory\shell\WMT_TakeOwnership" = Get-WmtRegistryPathExists "HKCR:\Directory\shell\WMT_TakeOwnership"
+            "HKCR:\Directory\Background\shell\WMT_OpenPowerShell" = Get-WmtRegistryPathExists "HKCR:\Directory\Background\shell\WMT_OpenPowerShell"
             "HKCU:\Software\Classes\Directory\shell\WmtCmdHere" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\shell\WmtCmdHere"
             "HKCU:\Software\Classes\*\shell\WmtNotepad" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\*\shell\WmtNotepad"
             "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print" = Get-WmtRegistryPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print"
