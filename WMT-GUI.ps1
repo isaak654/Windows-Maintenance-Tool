@@ -7229,19 +7229,15 @@ if (-not (Test-WmtCleanerMlWindowsPath $expandedPath)) { return $false }
 
 try {
     if ($expandedPath -match '[\*\?]') {
+        # For wildcard paths, only accept actual glob matches as evidence
         if (Test-Path -Path $expandedPath -ErrorAction SilentlyContinue) { return $true }
-        $wildcardRoot = Get-WmtCleanerMlWildcardRoot -Path $expandedPath
-        if (-not [string]::IsNullOrWhiteSpace($wildcardRoot) -and
-            -not (Test-WmtCleanerMlGenericEvidenceRoot -Path $wildcardRoot) -and
-            (Test-Path -LiteralPath $wildcardRoot -ErrorAction SilentlyContinue)) {
-            return $true
-        }
         return $false
     }
 
     if (Test-Path -LiteralPath $expandedPath -ErrorAction SilentlyContinue) { return $true }
 
-    if ($Search -eq "file") {
+    # Walk and deep searches target directories — accept parent directory existence
+    if ($Search -in @("walk.files", "walk.all", "walk.top", "deep")) {
         $parent = [System.IO.Path]::GetDirectoryName($expandedPath)
         if (-not [string]::IsNullOrWhiteSpace($parent) -and
             -not (Test-WmtCleanerMlGenericEvidenceRoot -Path $parent) -and
@@ -7476,11 +7472,15 @@ finally {
 function Get-WmtCleanerMlSection {
 param([string]$CleanerName)
 
-if ($CleanerName -match "(?i)\b(Chrome|Chromium|Edge|Firefox|Brave|Opera|Internet Explorer|SeaMonkey|Waterfox|LibreWolf|Vivaldi|Zen)\b") { return "Browsers / Internet" }
-if ($CleanerName -match "(?i)\b(Discord|Pidgin|Skype|Telegram|Signal|HexChat|Thunderbird|FileZilla)\b") { return "Internet & Chat" }
-if ($CleanerName -match "(?i)\b(Office|LibreOffice|Adobe|GIMP|Paint|Audacity|HandBrake|VLC|Java|Claude)\b") { return "Productivity" }
-if ($CleanerName -match "(?i)\b(Deep scan|System|Windows|Explorer|Thumbnails|Localizations)\b") { return "System" }
-if ($CleanerName -match "(?i)\b(Game|Steam|Minecraft|Roblox|Nexuiz|Warzone|Poker)\b") { return "Games" }
+if ($CleanerName -match "(?i)\b(Chrome|Chromium|Edge|Firefox|Brave|Opera|Internet Explorer|SeaMonkey|Waterfox|LibreWolf|Vivaldi|Zen|Iridium|Pale Moon|Comodo IceDragon)\b") { return "Browsers / Internet" }
+if ($CleanerName -match "(?i)\b(Discord|Pidgin|Skype|Telegram|Signal|HexChat|Thunderbird|FileZilla|Trillian|ooVoo|Yahoo Messenger|Jitsi)\b") { return "Internet & Chat" }
+if ($CleanerName -match "(?i)\b(Office|LibreOffice|Adobe|GIMP|Paint|Audacity|HandBrake|VLC|Java|Claude|Notepad\+\+|SourceTree|Visual Studio|NetBeans|Infranview|XnView|IrfanView|Calibre)\b") { return "Productivity" }
+if ($CleanerName -match "(?i)\b(Deep scan|System|Windows|Explorer|Thumbnails|Localizations|Recycle Bin|Windows Defender|Windows Update|Windows Media Player)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(Game|Steam|Epic Games|Minecraft|Roblox|Nexuiz|Warzone|Poker|Heroes of the Storm|Simutrans|World of Goo|Xonotic|Hedgewars|Voxelands)\b") { return "Games" }
+if ($CleanerName -match "(?i)\b(Spotify|iTunes|foobar|Music|Amarok|Clementine)\b") { return "Internet & Chat" }
+if ($CleanerName -match "(?i)\b(Tor|I2P|Vpn|VPN)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(VirtualBox|Virtual Machine|QEMU|Wine|PlayOnLinux)\b") { return "System" }
+if ($CleanerName -match "(?i)\b(Chocolatey|npm|pip|Ruby|Composer|dotnet|Python)\b") { return "System" }
 return "Applications"
 }
 
@@ -7607,7 +7607,7 @@ param([switch]$Download, [switch]$IncludePending, [switch]$SkipDownloads, [switc
 $dataPath = Get-DataPath
 $cachePath = Join-Path $dataPath "cleanerml_cache.json"
 $cacheMetaPath = Join-Path $dataPath "cleanerml_cache.meta.json"
-$cacheVersion = if ($IncludePending) { 4 } else { 3 }
+$cacheVersion = if ($IncludePending) { 6 } else { 5 }
 
 # Migrate: remove old bleachbit repo download (now using cleanerml repo)
 $oldBleachbitRoot = Join-Path $dataPath "bleachbit_cleanerml\bleachbit-master"
@@ -8574,8 +8574,13 @@ $getCleanerDisplayGroup = {
         "^Brave\b" { return "Brave" }
         "^Opera\b" { return "Opera" }
         "^SeaMonkey\b" { return "SeaMonkey" }
+        "^Vivaldi\b" { return "Vivaldi" }
+        "^Waterfox\b" { return "Waterfox" }
+        "^Pale Moon\b" { return "Pale Moon" }
+        "^Iridium\b" { return "Iridium" }
+        "^Comodo IceDragon\b" { return "Comodo IceDragon" }
         "^Microsoft\s+Office\b|^Office\b" { return "Microsoft Office" }
-        "^Microsoft\s+Outlook\b|^Outlook\b" { return "Microsoft Outlook" }
+        "^Microsoft\s+Outlook\b|^Outlook\b|Thunderbird" { return "Microsoft Outlook" }
         "^Microsoft\s+PowerToys\b|^PowerToys\b" { return "Microsoft PowerToys" }
         "^Adobe\b|Flash Player" { return "Adobe" }
         "^Steam\b" { return "Steam" }
@@ -8583,11 +8588,25 @@ $getCleanerDisplayGroup = {
         "^Xbox\b|Minecraft|Roblox" { return "Xbox" }
         "^Discord\b" { return "Discord" }
         "^Spotify\b" { return "Spotify" }
+        "^Telegram\b" { return "Telegram" }
+        "^Skype\b" { return "Skype" }
+        "^Trillian\b" { return "Trillian" }
+        "^iTunes\b" { return "iTunes" }
+        "^VLC\b|^VLC media player\b" { return "VLC" }
+        "^HandBrake\b" { return "HandBrake" }
+        "^Notepad\+\+\b" { return "Notepad++" }
+        "^Visual Studio\b" { return "Visual Studio" }
+        "^SourceTree\b" { return "SourceTree" }
+        "^Calibre\b" { return "Calibre" }
+        "^PotPlayer\b" { return "PotPlayer" }
+        "^foobar2000\b|^foobar\b" { return "foobar2000" }
         "^NVIDIA\b" { return "NVIDIA" }
         "^AMD\b" { return "AMD" }
         "^Windows Update\b" { return "Windows Update" }
         "^Windows Logs\b|Event Logs|Event Viewer|Error Reporting" { return "Windows Logs" }
         "^Windows\b|^Microsoft Store\b|^Microsoft\s+Windows\b" { return "Windows" }
+        "^Tor\b" { return "Tor" }
+        "^Heroes of the Storm\b|HotS\b" { return "Heroes of the Storm" }
     }
     if (-not [string]::IsNullOrWhiteSpace($rawGroup) -and $rawGroup -ne "General") {
         if ($rawGroup -eq "Epic") { return "Epic Games" }
@@ -8620,15 +8639,16 @@ $getCleanerDisplaySection = {
         if (-not [string]::IsNullOrWhiteSpace($rawSection)) { return $rawSection }
         return "System"
     }
-    if ($group -in @("Google Chrome", "Microsoft Edge", "Mozilla Firefox", "Brave", "Opera", "SeaMonkey")) { return "Browsers / Internet" }
-    if ($group -in @("Discord", "Spotify")) { return "Internet & Chat" }
+    if ($group -in @("Google Chrome", "Microsoft Edge", "Mozilla Firefox", "Brave", "Opera", "SeaMonkey", "Vivaldi", "Waterfox", "Pale Moon", "Iridium", "Comodo IceDragon")) { return "Browsers / Internet" }
+    if ($group -in @("Discord", "Spotify", "Trillian", "Telegram", "Skype")) { return "Internet & Chat" }
     if ($group -in @("Steam", "Epic Games", "Xbox") -or $rawSection -eq "Games") { return "Games" }
-    if ($group -in @("Microsoft Office", "Microsoft Outlook", "Microsoft PowerToys", "Adobe")) { return "Productivity" }
+    if ($group -in @("Microsoft Office", "Microsoft Outlook", "Microsoft PowerToys", "Adobe", "Visual Studio", "SourceTree", "Notepad++", "NetBeans IDE", "Calibre", "VLC", "HandBrake")) { return "Productivity" }
     if ($rawSection -in @("System", "Browsers / Internet", "Productivity", "Internet & Chat", "Games", "Applications")) { return $rawSection }
-    if ($name -match "(?i)\b(Outlook|Office|PowerToys|Adobe)\b") { return "Productivity" }
-    if ($name -match "(?i)\b(Chrome|Edge|Firefox|Brave|Opera|SeaMonkey|Browser)\b") { return "Browsers / Internet" }
-    if ($name -match "(?i)\b(Discord|Spotify|Slack|Telegram|WhatsApp|Signal|Zoom)\b") { return "Internet & Chat" }
-    if ($name -match "(?i)\b(Steam|Epic Games|Fortnite|Xbox|Minecraft|Roblox)\b") { return "Games" }
+    if ($name -match "(?i)\b(Outlook|Office|PowerToys|Adobe|Notepad\+\+|Visual Studio|SourceTree|NetBeans|Calibre|VLC|HandBrake|Audacity)\b") { return "Productivity" }
+    if ($name -match "(?i)\b(Chrome|Edge|Firefox|Brave|Opera|SeaMonkey|Browser|Vivaldi|Waterfox|Pale Moon|Iridium)\b") { return "Browsers / Internet" }
+    if ($name -match "(?i)\b(Discord|Spotify|Slack|Telegram|WhatsApp|Signal|Zoom|Trillian|Skype|ooVoo|FileZilla|Thunderbird)\b") { return "Internet & Chat" }
+    if ($name -match "(?i)\b(Steam|Epic Games|Fortnite|Xbox|Minecraft|Roblox|Heroes of the Storm)\b") { return "Games" }
+    if ($name -match "(?i)\b(Deep scan|Windows Update|Windows Defender|Recycle Bin|Windows Media Player|Tor|VPN|VirtualBox|Chocolatey|dotnet)\b") { return "System" }
     return "Applications"
 }.GetNewClosure()
 
