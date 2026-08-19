@@ -26744,13 +26744,13 @@ try {
     $btnToggleClickMode = Get-Ctrl "btnToggleClickMode"
     Update-WmtTweakToggle $btnToggleClickMode $singleClick "Single-Click Folders" "Double-Click Folders"
 
-    $classicContext = & $getPathExists "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
+    $classicContext = Get-WmtRegistryPathExists "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
     $btnToggleCtxMenu = Get-Ctrl "btnToggleCtxMenu"
     Update-WmtTweakToggle $btnToggleCtxMenu $classicContext "Classic Right-Click" "Modern Right-Click"
-    $takeOwnInstalled = & $getPathExists "HKCR:\Directory\shell\WMT_TakeOwnership"
+    $takeOwnInstalled = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\shell\WMT_TakeOwnership"
     $btnToggleTakeOwnership = Get-Ctrl "btnToggleTakeOwnership"
     Update-WmtTweakToggle $btnToggleTakeOwnership $takeOwnInstalled "Remove Take Ownership" "Add Take Ownership"
-    $psHereInstalled = & $getPathExists "HKCR:\Directory\Background\shell\WMT_OpenPowerShell"
+    $psHereInstalled = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\Background\shell\WMT_OpenPowerShell"
     $btnTogglePsHere = Get-Ctrl "btnTogglePsHere"
     Update-WmtTweakToggle $btnTogglePsHere $psHereInstalled "Remove PowerShell Here" "Add PowerShell Here"
 
@@ -26989,13 +26989,13 @@ try {
 
         # Context Menu (round 2)
         $cmdBtn = Get-Ctrl "btnToggleCmdHere"
-        if ($cmdBtn) { $exists = & $getPathExists "HKCU:\Software\Classes\Directory\shell\WmtCmdHere"; Update-WmtTweakToggle $cmdBtn $exists "Remove CMD Here" "Add CMD Here" }
+        if ($cmdBtn) { $exists = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\shell\WmtCmdHere"; Update-WmtTweakToggle $cmdBtn $exists "Remove CMD Here" "Add CMD Here" }
         $npBtn = Get-Ctrl "btnToggleNotepadCtx"
-        if ($npBtn) { $exists = & $getPathExists "HKCU:\Software\Classes\*\shell\WmtNotepad"; Update-WmtTweakToggle $npBtn $exists "Remove Notepad" "Add Notepad" }
+        if ($npBtn) { $exists = Get-WmtRegistryPathExists "HKCU:\Software\Classes\*\shell\WmtNotepad"; Update-WmtTweakToggle $npBtn $exists "Remove Notepad" "Add Notepad" }
         $prBtn = Get-Ctrl "btnToggleRemovePrint"
-        if ($prBtn) { $exists = (-not (& $getPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print")); Update-WmtTweakToggle $prBtn $exists "Restore Print" "Remove Print" }
+        if ($prBtn) { $exists = (-not (Get-WmtRegistryPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\print")); Update-WmtTweakToggle $prBtn $exists "Restore Print" "Remove Print" }
         $castBtn = Get-Ctrl "btnToggleRemoveCast"
-        if ($castBtn) { $exists = (-not (& $getPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice")); Update-WmtTweakToggle $castBtn $exists "Restore Cast to Device" "Remove Cast to Device" }
+        if ($castBtn) { $exists = (-not (Get-WmtRegistryPathExists "HKCU:\Software\Classes\SystemFileAssociations\image\shell\CastToDevice")); Update-WmtTweakToggle $castBtn $exists "Restore Cast to Device" "Remove Cast to Device" }
 
         # Sound
         $ssBtn = Get-Ctrl "btnToggleStartupSound"
@@ -41193,7 +41193,7 @@ $btnToggleTakeOwnership.Add_Click({
                 Write-GuiLog "Take Ownership context menu added (files, folders, drives)."
             } "Adding Take Ownership..."
         }
-        Update-WmtTweakToggle $btnToggleTakeOwnership (-not $installed) "Add Take Ownership" "Remove Take Ownership"
+        Update-WmtTweakToggle $btnToggleTakeOwnership (-not $installed) "Remove Take Ownership" "Add Take Ownership"
     })
 }
 
@@ -41217,7 +41217,7 @@ $btnTogglePsHere.Add_Click({
                 Write-GuiLog "PowerShell Here context menu added."
             } "Adding PowerShell Here..."
         }
-        Update-WmtTweakToggle $btnTogglePsHere (-not $installed) "Add PowerShell Here" "Remove PowerShell Here"
+        Update-WmtTweakToggle $btnTogglePsHere (-not $installed) "Remove PowerShell Here" "Add PowerShell Here"
     })
 }
 
