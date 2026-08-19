@@ -26749,10 +26749,10 @@ try {
     Update-WmtTweakToggle $btnToggleCtxMenu $classicContext "Classic Right-Click" "Modern Right-Click"
     $takeOwnInstalled = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\shell\WMT_TakeOwnership"
     $btnToggleTakeOwnership = Get-Ctrl "btnToggleTakeOwnership"
-    Update-WmtTweakToggle $btnToggleTakeOwnership $takeOwnInstalled "Remove Take Ownership" "Add Take Ownership"
+    Update-WmtTweakToggle $btnToggleTakeOwnership $takeOwnInstalled "Add Take Ownership" "Remove Take Ownership"
     $psHereInstalled = Get-WmtRegistryPathExists "HKCU:\Software\Classes\Directory\Background\shell\WMT_OpenPowerShell"
     $btnTogglePsHere = Get-Ctrl "btnTogglePsHere"
-    Update-WmtTweakToggle $btnTogglePsHere $psHereInstalled "Remove PowerShell Here" "Add PowerShell Here"
+    Update-WmtTweakToggle $btnTogglePsHere $psHereInstalled "Add PowerShell Here" "Remove PowerShell Here"
 
     # --- NEW TOGGLE STATE DETECTION ---
     $polAI = "HKCU:\Software\Policies\Microsoft\Windows\WindowsAI"
@@ -41193,7 +41193,7 @@ $btnToggleTakeOwnership.Add_Click({
                 Write-GuiLog "Take Ownership context menu added (files, folders, drives)."
             } "Adding Take Ownership..."
         }
-        Update-WmtTweakToggle $btnToggleTakeOwnership (-not $installed) "Remove Take Ownership" "Add Take Ownership"
+        Update-WmtTweakToggle $btnToggleTakeOwnership (-not $installed) "Add Take Ownership" "Remove Take Ownership"
     })
 }
 
@@ -41217,7 +41217,7 @@ $btnTogglePsHere.Add_Click({
                 Write-GuiLog "PowerShell Here context menu added."
             } "Adding PowerShell Here..."
         }
-        Update-WmtTweakToggle $btnTogglePsHere (-not $installed) "Remove PowerShell Here" "Add PowerShell Here"
+        Update-WmtTweakToggle $btnTogglePsHere (-not $installed) "Add PowerShell Here" "Remove PowerShell Here"
     })
 }
 
