@@ -20524,7 +20524,7 @@ foreach ($line in $rawOutput) {
             $current.DisplayVer = $matches[1]
             try { $current.Version = [Version]$matches[1] } catch {}
         }
-        else { $current.DisplayVer = $val }
+        else { $current.DisplayVer = if ($val) { $val } else { "N/A" } }
         if ($current.DisplayDate -eq "Unknown" -and $val -match '(\d{2}[/\-]\d{2}[/\-]\d{4})' -and ($matches[1] -as [DateTime])) {
             $current.DisplayDate = $matches[1]
             $current.SortDate = [DateTime]$matches[1]
@@ -20541,6 +20541,24 @@ if ($current) { $drivers += [PSCustomObject]$current }
 $toDelete = @()
 foreach ($group in @($drivers | Where-Object { $_.OriginalName } | Group-Object OriginalName)) {
     if ($group.Count -gt 1) { $toDelete += @($group.Group | Sort-Object SortDate, Version -Descending | Select-Object -Skip 1) }
+}
+
+# Protect drivers currently in use by active devices to prevent hardware breakage
+$inUseInfs = @()
+try {
+    $inUseInfs = @(
+        Get-CimInstance -ClassName Win32_PnPSignedDriver -ErrorAction Stop |
+        Where-Object { $_.InfName -match '^oem\d+\.inf$' } |
+        Select-Object -ExpandProperty InfName -Unique
+    )
+} catch {}
+if ($inUseInfs.Count -gt 0) {
+    $before = $toDelete.Count
+    $toDelete = @($toDelete | Where-Object { $_.PublishedName -notin $inUseInfs })
+    $skipped = $before - $toDelete.Count
+    if ($skipped -gt 0) {
+        Write-GuiLog "Skipped $skipped in-use driver package(s) that are actively installed on devices."
+    }
 }
 
 if (-not $toDelete -or $toDelete.Count -eq 0) {
