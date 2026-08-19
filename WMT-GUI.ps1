@@ -26674,8 +26674,8 @@ try {
         try { if (Get-Command Get-MMAgent -ErrorAction Ignore) { $mmaLive = Get-MMAgent -ErrorAction Ignore; if ($mmaLive -and $null -ne $mmaLive.MemoryCompression) { $mmaEnabled = [bool]$mmaLive.MemoryCompression } } } catch {}
     }
     if ($null -ne $mmaEnabled) {
-        Update-WmtTweakToggle $btnToggleMemCompress $mmaEnabled "Enable Mem Compression" "Disable Mem Compression"
-        Update-WmtTweakToggle $btnMyDeviceMemCompressToggle $mmaEnabled "Enable Mem Compression" "Disable Mem Compression"
+        Update-WmtTweakToggle $btnToggleMemCompress $mmaEnabled "Disable Mem Compression" "Enable Mem Compression"
+        Update-WmtTweakToggle $btnMyDeviceMemCompressToggle $mmaEnabled "Disable Mem Compression" "Enable Mem Compression"
     }
 
     $ap = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
@@ -26710,7 +26710,7 @@ try {
     Update-WmtTweakToggle $btnToggleExplorerLaunch ($launchTo -eq 1) "Open to This PC" "Open to Quick Access"
     $recentsHidden = ((ConvertTo-Int (& $getRegValue $explorerPath "ShowRecent" 1) 0) -eq 0 -and (ConvertTo-Int (& $getRegValue $explorerPath "ShowFrequent" 1) 0) -eq 0)
     $btnToggleRecents = Get-Ctrl "btnToggleRecents"
-    Update-WmtTweakToggle $btnToggleRecents $recentsHidden "Hide Recents" "Show Recents"
+    Update-WmtTweakToggle $btnToggleRecents $recentsHidden "Show Recents" "Hide Recents"
 
     $mousePath = "HKCU:\Control Panel\Mouse"
     $mouseSpeed = (ConvertTo-Int (& $getRegValue $mousePath "MouseSensitivity" 10) 0)
@@ -26731,10 +26731,10 @@ try {
     Update-WmtTweakToggle $btnToggleCtxMenu $classicContext "Classic Right-Click" "Modern Right-Click"
     $takeOwnInstalled = & $getPathExists "HKCR:\Directory\shell\WMT_TakeOwnership"
     $btnToggleTakeOwnership = Get-Ctrl "btnToggleTakeOwnership"
-    Update-WmtTweakToggle $btnToggleTakeOwnership $takeOwnInstalled "Add Take Ownership" "Remove Take Ownership"
+    Update-WmtTweakToggle $btnToggleTakeOwnership $takeOwnInstalled "Remove Take Ownership" "Add Take Ownership"
     $psHereInstalled = & $getPathExists "HKCR:\Directory\Background\shell\WMT_OpenPowerShell"
     $btnTogglePsHere = Get-Ctrl "btnTogglePsHere"
-    Update-WmtTweakToggle $btnTogglePsHere $psHereInstalled "Add PowerShell Here" "Remove PowerShell Here"
+    Update-WmtTweakToggle $btnTogglePsHere $psHereInstalled "Remove PowerShell Here" "Add PowerShell Here"
 
     # --- NEW TOGGLE STATE DETECTION ---
     $polAI = "HKCU:\Software\Policies\Microsoft\Windows\WindowsAI"
@@ -26795,7 +26795,7 @@ try {
     $etBtn = Get-Ctrl "btnToggleEndTask"
     if ($etBtn) {
         $etOn = (((ConvertTo-Int (& $getRegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings" "TaskbarEndTask" 0) 0) -eq 1))
-        Update-WmtTweakToggle $etBtn $etOn "End Task Off" "End Task on Taskbar"
+        Update-WmtTweakToggle $etBtn $etOn "End Task on Taskbar" "End Task Off"
     }
     $lacBtn = Get-Ctrl "btnToggleLastActiveClick"
     if ($lacBtn) {
@@ -26848,7 +26848,7 @@ try {
     $dmBtn = Get-Ctrl "btnToggleDarkMode"
     if ($dmBtn) {
         $dmDark = (((ConvertTo-Int (& $getRegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" "AppsUseLightTheme" 1) 0) -eq 0))
-        Update-WmtTweakToggle $dmBtn $dmDark "Light Mode" "Dark Mode"
+        Update-WmtTweakToggle $dmBtn $dmDark "Dark Mode" "Light Mode"
     }
     $trBtn = Get-Ctrl "btnToggleTransparency"
     if ($trBtn) {
@@ -27884,7 +27884,7 @@ $btnToggleEndTask.Add_Click({
         else {
             Invoke-UiCommand { Set-WmtRegDword $p "TaskbarEndTask" 1; Write-GuiLog "End Task on taskbar enabled (right-click apps in taskbar)." } "Enabling End Task..."
         }
-        Update-WmtTweakToggle $btnToggleEndTask (-not $currentlyOn) "End Task Off" "End Task on Taskbar"
+        Update-WmtTweakToggle $btnToggleEndTask (-not $currentlyOn) "End Task on Taskbar" "End Task Off"
     })
 }
 
@@ -28046,7 +28046,7 @@ $btnToggleDarkMode.Add_Click({
         else {
             Invoke-UiCommand { Set-WmtRegDword $p "AppsUseLightTheme" 0; Set-WmtRegDword $p "SystemUsesLightTheme" 0; Write-GuiLog "Dark mode enabled." } "Switching to dark mode..."
         }
-        Update-WmtTweakToggle $btnToggleDarkMode (-not $currentlyDark) "Light Mode" "Dark Mode"
+        Update-WmtTweakToggle $btnToggleDarkMode (-not $currentlyDark) "Dark Mode" "Light Mode"
     })
 }
 
@@ -41082,7 +41082,7 @@ $btnToggleRecents.Add_Click({
         else {
             Invoke-UiCommand { Set-WmtRegDword $p "ShowRecent" 0; Set-WmtRegDword $p "ShowFrequent" 0; Write-GuiLog "Recent files hidden." } "Hiding recents..."
         }
-        Update-WmtTweakToggle $btnToggleRecents (-not $currentlyHidden) "Hide Recents" "Show Recents"
+        Update-WmtTweakToggle $btnToggleRecents (-not $currentlyHidden) "Show Recents" "Hide Recents"
     })
 }
 
@@ -42710,7 +42710,7 @@ $btnToggleMemCompress.Add_Click({
             else {
                 Invoke-UiCommand { Enable-MMAgent -MemoryCompression -ErrorAction SilentlyContinue; Write-GuiLog "Memory compression enabled." } "Enabling memory compression..."
             }
-            Update-WmtTweakToggle $btnToggleMemCompress (-not [bool]$mma.MemoryCompression) "Enable Mem Compression" "Disable Mem Compression"
+            Update-WmtTweakToggle $btnToggleMemCompress (-not [bool]$mma.MemoryCompression) "Disable Mem Compression" "Enable Mem Compression"
         }
     })
 }
