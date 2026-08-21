@@ -27686,11 +27686,29 @@ $tabButton.Add_Click({
             elseif (-not $script:TweakStatesReady) {
                 # Background jobs disabled — do a one-time synchronous load with error fallback
                 Set-TweakStatesLoadingOverlay -Visible $true
+				# Explicitly set the initial state of the two loads
+				$script:OptionalFeaturesReady = $false
+                $script:TweakStatesReady = $false
+				# Allows the UI to render the overlay before the heavy work begins
+				$window.Dispatcher.Invoke(
+                    [System.Action]{},
+                    [System.Windows.Threading.DispatcherPriority]::Render
+                )
+                $optionalFeaturesLoaded = $false
+                $tweakStatesLoaded = $false
                 try {
                     $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                    Update-OptionalFeaturesSynchronously					
+                    $optionalFeaturesLoaded = $true					
+					$script:OptionalFeaturesReady = $true
+                    # Update the overlay immediately after the first load
+                    Sync-WmtTweakOverlayHide					
                     Update-TweakButtonStates
+                    $tweakStatesLoaded = $true
+                    $script:TweakStatesReady = $true					
+					# Update the overlay immediately after the second load
+                    Sync-WmtTweakOverlayHide
                     $sw.Stop()
-                    $script:TweakStatesReady = $true
                     if ($sw.ElapsedMilliseconds -gt 3000) {
                         try { Write-GuiLog "[Tweak States] Synchronous load completed slowly ($($sw.ElapsedMilliseconds)ms). Consider enabling background jobs in Settings." } catch {}
                     }
@@ -27698,11 +27716,14 @@ $tabButton.Add_Click({
                 catch {
                     $errMsg = $_.Exception.Message
                     try { Write-GuiLog "[Tweak States] ERROR: Failed to load tweak states: $errMsg" } catch {}
-                    $script:TweakStatesReady = $true
                     # Show error on overlay briefly before hiding
                     Show-TweakStatesLoadError -Message "Failed to load tweak states. Toggle buttons may show incorrect states. Click Retry or switch tabs and back. Error: $errMsg"
                 }
-                Sync-WmtTweakOverlayHide
+                finally {
+                    $script:OptionalFeaturesReady = $optionalFeaturesLoaded
+                    $script:TweakStatesReady = $tweakStatesLoaded
+                    Sync-WmtTweakOverlayHide
+                }
             }
         }
     })
@@ -43084,8 +43105,8 @@ function Sync-WmtTweakOverlayHide {
 # states background job AND the optional features background check have
 # completed.  Updates the overlay subtitle so the user knows what's still loading.
 try {
-    $tweakStatesDone = $script:TweakStatesReady
-    $optFeaturesDone = $script:OptionalFeaturesReady
+    $tweakStatesDone = [bool]$script:TweakStatesReady
+    $optFeaturesDone = [bool]$script:OptionalFeaturesReady
     if ($tweakStatesDone -and $optFeaturesDone) {
         Set-TweakStatesLoadingOverlay -Visible $false
     }
@@ -43095,6 +43116,18 @@ try {
         Set-TweakStatesLoadingOverlay -Visible $true
         $sub = Get-Ctrl "txtTweakOverlaySubtitle"
         if ($sub) { $sub.Text = "Tweak buttons loaded. Checking optional features (.NET, WSL, Hyper-V...)" }
+	}
+    elseif (-not $tweakStatesDone -and $optFeaturesDone) {
+        # Optional features are ready, but tweak toggle buttons are still loading.
+        Set-TweakStatesLoadingOverlay -Visible $true
+        $sub = Get-Ctrl "txtTweakOverlaySubtitle"
+        if ($sub) { $sub.Text = "Optional features loaded. Loading tweak buttons..." }
+    }
+    else {
+        # Both tweak states and optional features are still loading.
+        Set-TweakStatesLoadingOverlay -Visible $true
+        $sub = Get-Ctrl "txtTweakOverlaySubtitle"
+        if ($sub) { $sub.Text = "Loading tweak buttons and checking optional features..." }
     }
 } catch {}
 }
@@ -43485,6 +43518,26 @@ $script:TweakStatesBgTimeout.Add_Tick({
 $script:TweakStatesBgTimeout.Start()
 }
 
+$script:OptionalFeaturesMap = @{
+    "Microsoft-Hyper-V-All"              = "btnFeatHyperV"
+    "Microsoft-Windows-Subsystem-Linux"  = "btnFeatWSL"
+    "Containers-DisposableClientVM"      = "btnFeatSandbox"
+    "NetFx3"                             = "btnFeatDotNet35"
+    "ServicesForNFS-ClientOnly"          = "btnFeatNFS"
+    "TelnetClient"                       = "btnFeatTelnet"
+    "IIS-WebServerRole"                  = "btnFeatIIS"
+    "WindowsMediaPlayer"                 = "btnFeatLegacy"
+    "VirtualMachinePlatform"             = "btnFeatVMP"
+    "HypervisorPlatform"                 = "btnFeatWHP"
+    "OpenSSH.Client"                     = "btnFeatSSHClient"
+    "OpenSSH.Server"                     = "btnFeatSSHServer"
+    "Windows-Defender-ApplicationGuard"  = "btnFeatAppGuard"
+    "WirelessDisplay"                    = "btnFeatMiracast"
+    "QuickAssist"                        = "btnFeatQuickAssist"
+    "XpsViewer"                          = "btnFeatXPS"
+    "TIFFIFilter"                        = "btnFeatTIFF"
+}
+
 function Start-OptionalFeaturesBackgroundCheck {
 # Check all optional features in a SINGLE query (not 17 separate calls).
 # Runs only ONCE, deferred until the user first visits the Tweaks tab
@@ -43493,25 +43546,7 @@ if ($script:OptionalFeaturesCheckStarted) { return }
 $script:OptionalFeaturesCheckStarted = $true
 
 # Map feature names to button names
-$featureMap = @{
-    "Microsoft-Hyper-V-All"             = "btnFeatHyperV"
-    "Microsoft-Windows-Subsystem-Linux" = "btnFeatWSL"
-    "Containers-DisposableClientVM"     = "btnFeatSandbox"
-    "NetFx3"                            = "btnFeatDotNet35"
-    "ServicesForNFS-ClientOnly"         = "btnFeatNFS"
-    "TelnetClient"                      = "btnFeatTelnet"
-    "IIS-WebServerRole"                 = "btnFeatIIS"
-    "WindowsMediaPlayer"                = "btnFeatLegacy"
-    "VirtualMachinePlatform"            = "btnFeatVMP"
-    "HypervisorPlatform"                = "btnFeatWHP"
-    "OpenSSH.Client"                    = "btnFeatSSHClient"
-    "OpenSSH.Server"                    = "btnFeatSSHServer"
-    "Windows-Defender-ApplicationGuard" = "btnFeatAppGuard"
-    "WirelessDisplay"                   = "btnFeatMiracast"
-    "QuickAssist"                       = "btnFeatQuickAssist"
-    "XpsViewer"                         = "btnFeatXPS"
-    "TIFFIFilter"                       = "btnFeatTIFF"
-}
+$featureMap = $script:OptionalFeaturesMap
 
 # Run in a background runspace (shared pool)
 $ps = New-WmtPooledPowerShell
@@ -43605,6 +43640,69 @@ $script:FeaturesCheckTimer.Add_Tick({
         }
     })
 $script:FeaturesCheckTimer.Start()
+}
+
+function Update-OptionalFeaturesSynchronously {
+    $featureMap = $script:OptionalFeaturesMap
+    $results = @{}
+    $useCmdlet = $false
+    try {
+        if (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue) {
+            $useCmdlet = $true
+        }
+    }
+    catch {}
+    if ($useCmdlet) {
+        try {
+            Write-GuiLog "[Optional Features] Querying all features with PowerShell..."
+            $allFeatures = Get-WindowsOptionalFeature -Online -ErrorAction SilentlyContinue
+            if ($allFeatures) {
+                foreach ($feat in $allFeatures) {
+                    $btnName = $featureMap[$feat.FeatureName]
+                    if ($btnName) {
+                        $results[$btnName] = ($feat.State -eq "Enabled")
+                    }
+                }
+            }
+        }
+        catch {
+            try { Write-GuiLog "[Optional Features] PowerShell query failed: $($_.Exception.Message)" } catch {}
+        }
+    }
+    if ($results.Count -eq 0) {
+        try {
+            Write-GuiLog "[Optional Features] Querying all features with DISM..."
+            $output = Invoke-WmtCliText `
+                -FilePath "dism" `
+                -Arguments "/Online /Get-Features" `
+                -TimeoutMs 120000
+            foreach ($featureName in $featureMap.Keys) {
+                $btnName = $featureMap[$featureName]
+                if ($output -match "(?s)Feature Name :\s*$([regex]::Escape($featureName))\s*\r?\n.*?State\s*:\s*Enabled") {
+                    $results[$btnName] = $true
+                }
+                else {
+                    $results[$btnName] = $false
+                }
+            }
+        }
+        catch {
+            try { Write-GuiLog "[Optional Features] DISM query failed: $($_.Exception.Message)" } catch {}
+        }
+    }
+    foreach ($btnName in $results.Keys) {
+        $btn = Get-Ctrl $btnName
+        if (-not $btn) { continue }
+        if ($results[$btnName]) {
+            $btn.Style = ($window.FindResource("AccentBtn") -as [System.Windows.Style])
+            $btn.ToolTip = "Current state: Enabled (Blue = installed/active)`nClick to uninstall this feature (Gray).`nRestart recommended after toggling.`n`nOptional Windows feature. See card description for details."
+        }
+        else {
+            $btn.Style = ($window.FindResource("ActionBtn") -as [System.Windows.Style])
+            $btn.ToolTip = "Current state: Disabled (Gray = not installed)`nClick to install this feature (Blue).`nRestart recommended after toggling.`n`nOptional Windows feature. See card description for details."
+        }
+    }
+    Write-GuiLog "[Optional Features] Synchronous detection completed. Buttons updated: $($results.Count)"
 }
 
 $onMainWindowContentRendered = {
