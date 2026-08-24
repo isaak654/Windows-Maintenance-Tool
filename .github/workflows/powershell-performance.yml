@@ -1,0 +1,181 @@
+name: PowerShell performance analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_path:
+        description: "Path of the PowerShell script to profile"
+        required: true
+        default: "./Windows-Maintenance-Tool.ps1"
+        type: string
+
+      fail_threshold_seconds:
+        description: "Fail if total execution time exceeds this value. Use 0 to disable."
+        required: true
+        default: "0"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  performance-analysis:
+    name: Profile PowerShell script
+    runs-on: windows-latest
+
+    env:
+      SCRIPT_PATH: ${{ inputs.script_path }}
+      FAIL_THRESHOLD_SECONDS: ${{ inputs.fail_threshold_seconds }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install PowerShell Profiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Set-PSRepository `
+            -Name PSGallery `
+            -InstallationPolicy Trusted
+
+          Install-Module `
+            -Name Profiler `
+            -Scope CurrentUser `
+            -Force `
+            -AllowClobber
+
+      - name: Validate target script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $scriptPath = Join-Path `
+            -Path $PWD `
+            -ChildPath $env:SCRIPT_PATH
+
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+              throw "PowerShell script not found: $scriptPath"
+          }
+
+          if ([System.IO.Path]::GetExtension($scriptPath) -ne ".ps1") {
+              throw "The selected file must have a .ps1 extension."
+          }
+
+          Write-Host "Target script: $scriptPath"
+
+      - name: Run PowerShell profiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $scriptPath = Join-Path `
+            -Path $PWD `
+            -ChildPath $env:SCRIPT_PATH
+
+          $scriptPath = (Resolve-Path -LiteralPath $scriptPath).Path
+          $exportPath = Join-Path $PWD "profiler-results"
+
+          New-Item `
+            -ItemType Directory `
+            -Path $exportPath `
+            -Force | Out-Null
+
+          Import-Module Profiler
+
+          Write-Host "Profiling script: $scriptPath"
+
+          # Preheat prevents first-run startup overhead from distorting the result.
+          $trace = Trace-Script `
+            -ScriptBlock {
+                & $scriptPath
+            } `
+            -Preheat 1 `
+            -ExportPath $exportPath
+
+          if ($null -eq $trace) {
+              throw "The profiler did not return any result."
+          }
+
+          # Export the complete trace as JSON.
+          $trace |
+            ConvertTo-Json -Depth 20 |
+            Set-Content `
+              -Path (Join-Path $exportPath "trace.json") `
+              -Encoding UTF8
+
+          # Export the slowest individual lines.
+          $trace.Top50SelfDuration |
+            Select-Object `
+              File,
+              Line,
+              Text,
+              SelfDuration,
+              SelfPercent |
+            ConvertTo-Json -Depth 10 |
+            Set-Content `
+              -Path (Join-Path $exportPath "top-self-duration.json") `
+              -Encoding UTF8
+
+          # Export the slowest operations including nested calls.
+          $trace.Top50Duration |
+            Select-Object `
+              File,
+              Line,
+              Text,
+              Duration,
+              Percent |
+            ConvertTo-Json -Depth 10 |
+            Set-Content `
+              -Path (Join-Path $exportPath "top-duration.json") `
+              -Encoding UTF8
+
+          $totalSeconds = $trace.TotalDuration.TotalSeconds
+
+          $report = @"
+          ## PowerShell performance report
+
+          **Script:** ``$env:SCRIPT_PATH``  
+          **Total duration:** ``$($trace.TotalDuration)``  
+          **Total seconds:** ``$totalSeconds``
+
+          ### Slowest lines by self duration
+
+          `````text
+          \$(
+              \$trace.Top50SelfDuration |
+                  Select-Object -First 20 \`
+                    File,
+                    Line,
+                    Text,
+                    SelfDuration,
+                    SelfPercent |
+                  Format-Table -AutoSize |
+                  Out-String
+          )
+          `````
+          "@
+
+          $report |
+            Out-File `
+              -FilePath $env:GITHUB_STEP_SUMMARY `
+              -Encoding utf8
+
+          $threshold = [double]$env:FAIL_THRESHOLD_SECONDS
+
+          if ($threshold -gt 0 -and $totalSeconds -gt $threshold) {
+              throw "Performance threshold exceeded. Actual: $totalSeconds seconds. Allowed: $threshold seconds."
+          }
+
+          Write-Host "Profiling completed successfully."
+          Write-Host "Total duration: $totalSeconds seconds"
+
+      - name: Upload profiler results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: powershell-profiler-results
+          path: profiler-results/
+          if-no-files-found: warn
+          retention-days: 14
