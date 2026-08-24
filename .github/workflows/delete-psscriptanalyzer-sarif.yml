@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -t ANALYSIS_IDS < <(
+          mapfile -t RAW_ANALYSIS_IDS < <(
             gh api \
               --paginate \
               "repos/${GH_REPO}/code-scanning/analyses?per_page=100" \
@@ -74,36 +74,53 @@ jobs:
                     and .deletable == true
                   )
                 | .id
-              '
+              ' 2>&1 || true
           )
 
+          ANALYSIS_IDS=()
+
+          for CANDIDATE in "${RAW_ANALYSIS_IDS[@]}"; do
+            if [[ "${CANDIDATE}" =~ ^[0-9]+$ ]]; then
+              ANALYSIS_IDS+=("${CANDIDATE}")
+            else
+              echo "Ignoring invalid analysis ID returned by GitHub:"
+              echo "${CANDIDATE}"
+            fi
+          done
+
           if [[ ${#ANALYSIS_IDS[@]} -eq 0 ]]; then
-            echo "No deletable analyses found for tool: ${TOOL_NAME}"
+            echo "No valid deletable analyses found for tool: ${TOOL_NAME}"
             exit 0
           fi
 
-          echo "Found ${#ANALYSIS_IDS[@]} deletable analysis/analyses."
+          echo "Found ${#ANALYSIS_IDS[@]} valid deletable analysis/analyses."
           echo
 
           for ANALYSIS_ID in "${ANALYSIS_IDS[@]}"; do
             echo "Deleting Code Scanning analysis: ${ANALYSIS_ID}"
 
-            if RESPONSE="$(
-              gh api \
-                --method DELETE \
-                "repos/${GH_REPO}/code-scanning/analyses/${ANALYSIS_ID}?confirm_delete=true" \
-                2>&1
-            )"; then
+            RESPONSE_FILE="$(mktemp)"
+
+            if gh api \
+              --method DELETE \
+              "repos/${GH_REPO}/code-scanning/analyses/${ANALYSIS_ID}?confirm_delete=true" \
+              >"${RESPONSE_FILE}" 2>&1; then
+
+              cat "${RESPONSE_FILE}"
               echo "Analysis deleted successfully."
+
+            elif grep -q "HTTP 404" "${RESPONSE_FILE}"; then
+
+              echo "Analysis ${ANALYSIS_ID} was already deleted or is no longer available."
+
             else
-              if grep -q "HTTP 404" <<< "${RESPONSE}"; then
-                echo "Analysis ${ANALYSIS_ID} was already deleted or is no longer available."
-              else
-                echo "${RESPONSE}"
-                exit 1
-              fi
+
+              cat "${RESPONSE_FILE}"
+              rm -f "${RESPONSE_FILE}"
+              exit 1
             fi
 
+            rm -f "${RESPONSE_FILE}"
             echo
           done
 
