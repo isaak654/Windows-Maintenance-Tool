@@ -6,7 +6,7 @@ on:
       script_path:
         description: "Path or file name of the PowerShell script to profile"
         required: true
-        default: "./Windows-Maintenance-Tool.ps1"
+        default: "./WMT-GUI.ps1"
         type: string
 
       fail_threshold_seconds:
