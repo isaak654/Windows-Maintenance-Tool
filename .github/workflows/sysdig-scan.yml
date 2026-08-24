@@ -31,18 +31,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build the Docker image
+      - name: Prepare Docker image tag
+        id: image
+        shell: bash
+        run: |
+          IMAGE_TAG="${GITHUB_REPOSITORY,,}:latest"
+          echo "tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: $IMAGE_TAG"
+
+      - name: Build Docker image
         run: |
           docker build \
             --file Dockerfile \
-            --tag "${{ github.repository }}:latest" \
+            --tag "${{ steps.image.outputs.tag }}" \
             .
 
       - name: Sysdig Secure Inline Scan
         id: scan
         uses: sysdiglabs/scan-action@768d7626a14897e0948ea89c8437dd46a814b163
         with:
-          image-tag: ${{ github.repository }}:latest
+          image-tag: ${{ steps.image.outputs.tag }}
           sysdig-secure-token: ${{ secrets.SYSDIG_SECURE_TOKEN }}
           sysdig-secure-url: https://us2.app.sysdig.com
           dockerfile-path: ./Dockerfile
