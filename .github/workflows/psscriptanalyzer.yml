@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 concurrency:
   group: psscriptanalyzer-${{ github.workflow }}-${{ github.ref }}
@@ -31,7 +32,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install latest PSScriptAnalyzer
         shell: pwsh
@@ -71,7 +72,7 @@ jobs:
 
           Write-Host "Installed PSScriptAnalyzer version: $($installed.Version)"
 
-      - name: Run PSScriptAnalyzer
+      - name: Run PSScriptAnalyzer and generate SARIF
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -132,6 +133,138 @@ jobs:
 
           $issues = @($issues)
 
+          $rules = @{}
+          $sarifResults = @()
+
+          foreach ($issue in $issues) {
+            $ruleId = if ($issue.RuleName) {
+              [string]$issue.RuleName
+            }
+            else {
+              'PSScriptAnalyzer'
+            }
+
+            if (-not $rules.ContainsKey($ruleId)) {
+              $rules[$ruleId] = @{
+                id               = $ruleId
+                name             = $ruleId
+                shortDescription = @{
+                  text = $ruleId
+                }
+                fullDescription  = @{
+                  text = "PSScriptAnalyzer rule $ruleId"
+                }
+              }
+            }
+
+            $scriptPath = if ($issue.ScriptName) {
+              [string]$issue.ScriptName
+            }
+            else {
+              [string]$files[0].FullName
+            }
+
+            if ([System.IO.Path]::IsPathRooted($scriptPath)) {
+              $relativePath = [System.IO.Path]::GetRelativePath(
+                $PWD.Path,
+                $scriptPath
+              )
+            }
+            else {
+              $relativePath = $scriptPath
+            }
+
+            $relativePath = $relativePath.Replace('\', '/')
+
+            $level = switch ([string]$issue.Severity) {
+              'Error' {
+                'error'
+              }
+              'ParseError' {
+                'error'
+              }
+              'Warning' {
+                'warning'
+              }
+              default {
+                'note'
+              }
+            }
+
+            $startLine = if ($issue.Line) {
+              [int]$issue.Line
+            }
+            else {
+              1
+            }
+
+            $startColumn = if ($issue.Column) {
+              [int]$issue.Column
+            }
+            else {
+              1
+            }
+
+            $endLine = $startLine
+            $endColumn = $startColumn + 1
+
+            if ($issue.Extent) {
+              if ($issue.Extent.EndLineNumber) {
+                $endLine = [int]$issue.Extent.EndLineNumber
+              }
+
+              if ($issue.Extent.EndColumnNumber) {
+                $endColumn = [int]$issue.Extent.EndColumnNumber
+              }
+            }
+
+            $sarifResults += @{
+              ruleId  = $ruleId
+              level   = $level
+              message = @{
+                text = [string]$issue.Message
+              }
+              locations = @(
+                @{
+                  physicalLocation = @{
+                    artifactLocation = @{
+                      uri = $relativePath
+                    }
+                    region = @{
+                      startLine   = $startLine
+                      startColumn = $startColumn
+                      endLine     = $endLine
+                      endColumn   = $endColumn
+                    }
+                  }
+                }
+              )
+            }
+          }
+
+          $sarif = @{
+            '$schema' = 'https://json.schemastore.org/sarif-2.1.0.json'
+            version   = '2.1.0'
+            runs      = @(
+              @{
+                tool = @{
+                  driver = @{
+                    name           = 'PSScriptAnalyzer'
+                    informationUri = 'https://github.com/PowerShell/PSScriptAnalyzer'
+                    rules          = @($rules.Values)
+                  }
+                }
+                results = @($sarifResults)
+              }
+            )
+          }
+
+          $sarif |
+            ConvertTo-Json -Depth 20 |
+            Set-Content `
+              -Path PSScriptAnalyzer-results.sarif `
+              -Encoding utf8
+
           $issues |
             ConvertTo-Json -Depth 8 |
             Set-Content `
@@ -140,7 +273,10 @@ jobs:
 
           $errors = @(
             $issues |
-              Where-Object Severity -eq 'Error'
+              Where-Object {
+                $_.Severity -eq 'Error' -or
+                $_.Severity -eq 'ParseError'
+              }
           )
 
           $warnings = @(
@@ -179,11 +315,20 @@ jobs:
             throw "PSScriptAnalyzer detected $($errors.Count) error(s)."
           }
 
-      - name: Upload analysis results
+      - name: Upload SARIF results to GitHub Code Scanning
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: PSScriptAnalyzer-results.sarif
+          category: psscriptanalyzer
+
+      - name: Upload analysis artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
           name: psscriptanalyzer-results
-          path: PSScriptAnalyzer-results.json
+          path: |
+            PSScriptAnalyzer-results.sarif
+            PSScriptAnalyzer-results.json
           if-no-files-found: ignore
           retention-days: 30
