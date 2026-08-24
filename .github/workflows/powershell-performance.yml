@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       script_path:
-        description: "Path of the PowerShell script to profile"
+        description: "Path or file name of the PowerShell script to profile"
         required: true
         default: "./Windows-Maintenance-Tool.ps1"
         type: string
@@ -46,61 +46,108 @@ jobs:
             -Force `
             -AllowClobber
 
-      - name: Validate target script
+      - name: Locate target script
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
+          # Create the output directory before validating the target script.
           New-Item `
             -ItemType Directory `
             -Path "profiler-results" `
             -Force | Out-Null
 
-          $scriptPath = Join-Path `
+          $requestedPath = Join-Path `
             -Path $PWD `
             -ChildPath $env:SCRIPT_PATH
 
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-              throw "PowerShell script not found: $scriptPath"
+          $resolvedScriptPath = $null
+
+          # First, try the exact relative path provided as workflow input.
+          if (Test-Path -LiteralPath $requestedPath -PathType Leaf) {
+              $resolvedScriptPath = (Resolve-Path -LiteralPath $requestedPath).Path
+          }
+          else {
+              # If the exact path does not exist, search recursively by file name.
+              $requestedName = [System.IO.Path]::GetFileName($env:SCRIPT_PATH)
+
+              $matches = @(
+                  Get-ChildItem `
+                    -Path $PWD `
+                    -Recurse `
+                    -File `
+                    -Filter $requestedName |
+                  Where-Object {
+                      $_.FullName -notmatch '[\\/]\.git[\\/]'
+                  }
+              )
+
+              if ($matches.Count -eq 1) {
+                  $resolvedScriptPath = $matches[0].FullName
+              }
+              elseif ($matches.Count -gt 1) {
+                  Write-Host "Multiple matching PowerShell scripts were found:"
+                  $matches |
+                    Select-Object -ExpandProperty FullName
+
+                  throw "More than one script named '$requestedName' was found."
+              }
           }
 
-          if ([System.IO.Path]::GetExtension($scriptPath) -ne ".ps1") {
+          if ([string]::IsNullOrWhiteSpace($resolvedScriptPath)) {
+              Write-Host "Available PowerShell scripts:"
+
+              Get-ChildItem `
+                -Path $PWD `
+                -Recurse `
+                -File `
+                -Filter "*.ps1" |
+              Where-Object {
+                  $_.FullName -notmatch '[\\/]\.git[\\/]'
+              } |
+              Select-Object -ExpandProperty FullName
+
+              throw "PowerShell script not found: $($env:SCRIPT_PATH)"
+          }
+
+          if ([System.IO.Path]::GetExtension($resolvedScriptPath) -ne ".ps1") {
               throw "The selected file must have a .ps1 extension."
           }
 
-          Write-Host "Target script: $scriptPath"
+          Write-Host "Target script: $resolvedScriptPath"
+
+          # Make the resolved absolute path available to later steps.
+          "RESOLVED_SCRIPT_PATH=$resolvedScriptPath" |
+            Add-Content `
+              -Path $env:GITHUB_ENV `
+              -Encoding utf8
 
       - name: Run PowerShell profiler
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $scriptPath = Join-Path `
-            -Path $PWD `
-            -ChildPath $env:SCRIPT_PATH
-
-          $scriptPath = (Resolve-Path -LiteralPath $scriptPath).Path
-
+          $scriptPath = $env:RESOLVED_SCRIPT_PATH
           $exportDirectory = Join-Path `
             -Path $PWD `
             -ChildPath "profiler-results"
 
-          New-Item `
-            -ItemType Directory `
-            -Path $exportDirectory `
-            -Force | Out-Null
-
           # ExportPath is a file base path, not a directory.
-          # Profiler appends ".speedscope.json" automatically.
+          # The Profiler module appends ".speedscope.json".
           $exportBasePath = Join-Path `
             -Path $exportDirectory `
             -ChildPath "profile"
 
-          Import-Module Profiler
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+              throw "Resolved PowerShell script not found: $scriptPath"
+          }
+
+          Import-Module Profiler -ErrorAction Stop
 
           try {
               Write-Host "Profiling script: $scriptPath"
 
+              # The target script is executed by Trace-Script.
               $trace = Trace-Script `
                 -ScriptBlock {
                     & $scriptPath
@@ -112,12 +159,14 @@ jobs:
                   throw "The profiler did not return any result."
               }
 
+              # Export the complete profiler result as JSON.
               $trace |
                 ConvertTo-Json -Depth 20 |
                 Set-Content `
                   -Path (Join-Path $exportDirectory "trace.json") `
-                  -Encoding UTF8
+                  -Encoding utf8
 
+              # Export the slowest operations by self duration.
               $trace.Top50SelfDuration |
                 Select-Object `
                   File,
@@ -128,8 +177,9 @@ jobs:
                 ConvertTo-Json -Depth 10 |
                 Set-Content `
                   -Path (Join-Path $exportDirectory "top-self-duration.json") `
-                  -Encoding UTF8
+                  -Encoding utf8
 
+              # Export the slowest operations including nested calls.
               $trace.Top50Duration |
                 Select-Object `
                   File,
@@ -140,36 +190,42 @@ jobs:
                 ConvertTo-Json -Depth 10 |
                 Set-Content `
                   -Path (Join-Path $exportDirectory "top-duration.json") `
-                  -Encoding UTF8
+                  -Encoding utf8
 
               $totalSeconds = $trace.TotalDuration.TotalSeconds
 
-              @"
-          ## PowerShell performance report
+              $topOperations = $trace.Top50SelfDuration |
+                Select-Object -First 20 `
+                  File,
+                  Line,
+                  Text,
+                  SelfDuration,
+                  SelfPercent |
+                Format-Table -AutoSize |
+                Out-String
 
-          **Script:** ``$env:SCRIPT_PATH``  
-          **Total duration:** ``$($trace.TotalDuration)``  
-          **Total seconds:** ``$totalSeconds``
+              # Build the GitHub Actions job summary.
+              $summary = @(
+                  "## PowerShell performance report"
+                  ""
+                  "**Script:** ``$env:SCRIPT_PATH``  "
+                  "**Resolved path:** ``$scriptPath``  "
+                  "**Total duration:** ``$($trace.TotalDuration)``  "
+                  "**Total seconds:** ``$totalSeconds``"
+                  ""
+                  "### Slowest lines by self duration"
+                  ""
+                  '```text'
+                  \$topOperations
+                  '```'
+              )
 
-          ### Slowest lines by self duration
+              $summary -join "`n" |
+                Out-File `
+                  -FilePath $env:GITHUB_STEP_SUMMARY `
+                  -Encoding utf8
 
-          ```\`text
-          \$(
-              \$trace.Top50SelfDuration |
-                  Select-Object -First 20 \`
-                    File,
-                    Line,
-                    Text,
-                    SelfDuration,
-                    SelfPercent |
-                  Format-Table -AutoSize |
-                  Out-String
-          )
-          ````
-          "@ | Out-File `
-                -FilePath $env:GITHUB_STEP_SUMMARY `
-                -Encoding utf8
-
+              # Optionally fail the workflow if the execution time is too high.
               $threshold = [double]$env:FAIL_THRESHOLD_SECONDS
 
               if ($threshold -gt 0 -and $totalSeconds -gt $threshold) {
@@ -177,12 +233,14 @@ jobs:
               }
 
               Write-Host "Profiling completed successfully."
+              Write-Host "Total duration: $totalSeconds seconds."
           }
           catch {
-              $_ | Out-String |
+              $_ |
+                Out-String |
                 Set-Content `
                   -Path (Join-Path $exportDirectory "profiler-error.txt") `
-                  -Encoding UTF8
+                  -Encoding utf8
 
               throw
           }
