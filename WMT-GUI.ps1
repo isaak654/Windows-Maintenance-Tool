@@ -40802,6 +40802,33 @@ if ($btnAppxRemoveAll) { $btnAppxRemoveAll.Add_Click({
     }
 }) }
 
+function Update-SingleFeatureButtonState {
+param([string]$ButtonName, [string]$FeatureName)
+# Check a single feature and update its button color (runs on UI thread, but only 1 DISM call)
+$btn = Get-Ctrl $ButtonName
+if (-not $btn) { return }
+$isEnabled = $false
+try {
+    if (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue) {
+        $feat = Get-WindowsOptionalFeature -Online -FeatureName $FeatureName -ErrorAction SilentlyContinue
+        if ($feat -and $feat.State -eq "Enabled") { $isEnabled = $true }
+    }
+    else {
+        $info = Invoke-WmtCliText -FilePath "dism" -Arguments "/Online /Get-FeatureInfo /FeatureName:$FeatureName"
+        if ($info -match "State\s*:\s*Enabled") { $isEnabled = $true }
+    }
+}
+catch {}
+if ($isEnabled) {
+    $btn.Style = ($window.FindResource("AccentBtn") -as [System.Windows.Style])
+    $btn.ToolTip = "Current state: Enabled (Blue = installed/active)`nClick to uninstall this feature (Gray).`nRestart recommended after toggling.`n`nOptional Windows feature. See card description for details."
+}
+else {
+    $btn.Style = ($window.FindResource("ActionBtn") -as [System.Windows.Style])
+    $btn.ToolTip = "Current state: Disabled (Gray = not installed)`nClick to install this feature (Blue).`nRestart recommended after toggling.`n`nOptional Windows feature. See card description for details."
+}
+}
+
 # --- WINDOWS FEATURES TOGGLE ---
 if ($btnFeatHyperV) { $btnFeatHyperV.Add_Click({ Switch-WindowsFeature "Microsoft-Hyper-V-All" "Hyper-V" }) } ; Update-SingleFeatureButtonState "btnFeatHyperV" "Microsoft-Hyper-V-All"
 if ($btnFeatWSL) { $btnFeatWSL.Add_Click({ Switch-WindowsFeature "Microsoft-Windows-Subsystem-Linux" "WSL" }) } ; Update-SingleFeatureButtonState "btnFeatWSL" "Microsoft-Windows-Subsystem-Linux"
@@ -40831,32 +40858,7 @@ Set-WmtRegDword $p "LogPixels" $logPixels[$Scale]
 Write-GuiLog "Display scale set to $Scale% (log off / restart to apply)."
 }
 
-function Update-SingleFeatureButtonState {
-param([string]$ButtonName, [string]$FeatureName)
-# Check a single feature and update its button color (runs on UI thread, but only 1 DISM call)
-$btn = Get-Ctrl $ButtonName
-if (-not $btn) { return }
-$isEnabled = $false
-try {
-    if (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue) {
-        $feat = Get-WindowsOptionalFeature -Online -FeatureName $FeatureName -ErrorAction SilentlyContinue
-        if ($feat -and $feat.State -eq "Enabled") { $isEnabled = $true }
-    }
-    else {
-        $info = Invoke-WmtCliText -FilePath "dism" -Arguments "/Online /Get-FeatureInfo /FeatureName:$FeatureName"
-        if ($info -match "State\s*:\s*Enabled") { $isEnabled = $true }
-    }
-}
-catch {}
-if ($isEnabled) {
-    $btn.Style = ($window.FindResource("AccentBtn") -as [System.Windows.Style])
-    $btn.ToolTip = "Current state: Enabled (Blue = installed/active)`nClick to uninstall this feature (Gray).`nRestart recommended after toggling.`n`nOptional Windows feature. See card description for details."
-}
-else {
-    $btn.Style = ($window.FindResource("ActionBtn") -as [System.Windows.Style])
-    $btn.ToolTip = "Current state: Disabled (Gray = not installed)`nClick to install this feature (Blue).`nRestart recommended after toggling.`n`nOptional Windows feature. See card description for details."
-}
-}
+
 
 function Switch-WindowsFeature($FeatureName, $DisplayName) {
 Invoke-UiCommand {
