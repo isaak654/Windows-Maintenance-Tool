@@ -1,0 +1,94 @@
+name: Delete PSScriptAnalyzer SARIF analyses
+
+on:
+  workflow_dispatch:
+    inputs:
+      tool_name:
+        description: "Name of the Code Scanning tool"
+        required: true
+        default: "PSScriptAnalyzer"
+        type: string
+
+      dry_run:
+        description: "Only list deletable analyses without deleting them"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  delete-sarif-analyses:
+    name: Delete SARIF analyses
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TOOL_NAME: ${{ inputs.tool_name }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: List matching Code Scanning analyses
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Repository: ${GH_REPO}"
+          echo "Tool: ${TOOL_NAME}"
+          echo "Dry run: ${DRY_RUN}"
+          echo
+
+          gh api \
+            --paginate \
+            "repos/${GH_REPO}/code-scanning/analyses?per_page=100" \
+            --jq '
+              .analyses[]
+              | select(.tool.name == env.TOOL_NAME)
+              | [
+                  .id,
+                  .ref,
+                  .category,
+                  .deletable,
+                  .created_at
+                ]
+              | @tsv
+            ' || true
+
+      - name: Delete matching Code Scanning analyses
+        if: ${{ inputs.dry_run == false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while true; do
+            ANALYSIS_ID="$(
+              gh api \
+                --paginate \
+                "repos/${GH_REPO}/code-scanning/analyses?per_page=100" \
+                --jq '
+                  .analyses[]
+                  | select(
+                      .tool.name == env.TOOL_NAME
+                      and .deletable == true
+                    )
+                  | .id
+                ' |
+                head -n 1
+            )"
+
+            if [[ -z "${ANALYSIS_ID}" ]]; then
+              echo "No deletable analyses remain for tool: ${TOOL_NAME}"
+              break
+            fi
+
+            echo "Deleting Code Scanning analysis: ${ANALYSIS_ID}"
+
+            gh api \
+              --method DELETE \
+              "repos/${GH_REPO}/code-scanning/analyses/${ANALYSIS_ID}?confirm_delete=true"
+
+            echo "Analysis deleted successfully."
+          done
