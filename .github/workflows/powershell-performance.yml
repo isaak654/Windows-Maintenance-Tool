@@ -51,8 +51,9 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
+          $repositoryPath = Get-Location
           $resultsDirectory = Join-Path `
-            -Path (Get-Location) `
+            -Path $repositoryPath `
             -ChildPath "profiler-results"
 
           New-Item `
@@ -68,21 +69,23 @@ jobs:
           }
           else {
               $candidatePath = Join-Path `
-                -Path (Get-Location) `
+                -Path $repositoryPath `
                 -ChildPath $requestedPath
           }
 
           $resolvedScriptPath = $null
 
           if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
-              $resolvedScriptPath = (Resolve-Path -LiteralPath $candidatePath).Path
+              $resolvedScriptPath = (
+                  Resolve-Path -LiteralPath $candidatePath
+              ).Path
           }
           else {
               $requestedName = [System.IO.Path]::GetFileName($requestedPath)
 
               $matches = @(
                   Get-ChildItem `
-                    -Path (Get-Location) `
+                    -Path $repositoryPath `
                     -Recurse `
                     -File `
                     -Filter $requestedName |
@@ -96,6 +99,7 @@ jobs:
               }
               elseif ($matches.Count -gt 1) {
                   Write-Host "Multiple matching PowerShell scripts were found:"
+
                   $matches |
                     Select-Object -ExpandProperty FullName
 
@@ -107,7 +111,7 @@ jobs:
               Write-Host "Available PowerShell scripts:"
 
               Get-ChildItem `
-                -Path (Get-Location) `
+                -Path $repositoryPath `
                 -Recurse `
                 -File `
                 -Filter "*.ps1" |
@@ -134,31 +138,127 @@ jobs:
               -Encoding utf8
 
       - name: Validate target script
+        id: validate
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
+          $ErrorActionPreference = "Continue"
 
           $scriptPath = $env:RESOLVED_SCRIPT_PATH
+          $errorFile = Join-Path `
+            -Path (Get-Location) `
+            -ChildPath "profiler-results/preflight-errors.txt"
 
           if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
               throw "Resolved PowerShell script not found: $scriptPath"
           }
 
-          try {
-              & $scriptPath
-          }
-          catch {
-              $errorMessage = $_ | Out-String
+          $allErrors = @()
 
-              $errorMessage |
+          $tokens = $null
+          $parseErrors = @()
+
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              $scriptPath,
+              [ref]$tokens,
+              [ref]$parseErrors
+          ) | Out-Null
+
+          foreach ($parseError in $parseErrors) {
+              $allErrors += [PSCustomObject]@{
+                  Type    = "Syntax"
+                  File    = $scriptPath
+                  Line    = $parseError.Extent.StartLineNumber
+                  Column  = $parseError.Extent.StartColumnNumber
+                  Message = $parseError.Message
+                  Code    = $parseError.Extent.Text
+              }
+          }
+
+          if ($parseErrors.Count -eq 0) {
+              $runtimeErrors = @()
+
+              try {
+                  & $scriptPath 2>&1 |
+                    ForEach-Object {
+                        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                            $runtimeErrors += $_
+
+                            Write-Host `
+                              "[Runtime error] $($_.ToString())" `
+                              -ForegroundColor Red
+                        }
+                        else {
+                            $_ | Out-Host
+                        }
+                    }
+              }
+              catch {
+                  $runtimeErrors += $_
+              }
+
+              foreach ($runtimeError in $runtimeErrors) {
+                  $lineNumber = 0
+                  $columnNumber = 0
+                  $sourceLine = ""
+
+                  if ($null -ne $runtimeError.InvocationInfo) {
+                      $lineNumber = $runtimeError.InvocationInfo.ScriptLineNumber
+                      $columnNumber = $runtimeError.InvocationInfo.OffsetInLine
+                      $sourceLine = $runtimeError.InvocationInfo.Line
+                  }
+
+                  $allErrors += [PSCustomObject]@{
+                      Type    = "Runtime"
+                      File    = $scriptPath
+                      Line    = $lineNumber
+                      Column  = $columnNumber
+                      Message = $runtimeError.Exception.Message
+                      Code    = $sourceLine
+                  }
+              }
+          }
+
+          if ($allErrors.Count -gt 0) {
+              $report = foreach ($errorItem in $allErrors) {
+                  @(
+                      "Type:    $($errorItem.Type)"
+                      "File:    $($errorItem.File)"
+                      "Line:    $($errorItem.Line)"
+                      "Column:  $($errorItem.Column)"
+                      "Message: $($errorItem.Message)"
+                      "Code:    $($errorItem.Code)"
+                      ""
+                  ) -join "`n"
+              }
+
+              $report |
                 Set-Content `
-                  -Path "profiler-results/preflight-error.txt" `
+                  -Path $errorFile `
                   -Encoding utf8
 
-              throw "The target script failed during validation.`n$errorMessage"
+              Write-Host ""
+              Write-Host `
+                "Total errors found: $($allErrors.Count)" `
+                -ForegroundColor Red
+
+              foreach ($errorItem in $allErrors) {
+                  Write-Host (
+                      "{0}:{1}:{2} [{3}] {4}" -f
+                      $errorItem.File,
+                      $errorItem.Line,
+                      $errorItem.Column,
+                      $errorItem.Type,
+                      $errorItem.Message
+                  ) -ForegroundColor Red
+              }
+
+              exit 1
           }
 
+          Write-Host "Validation completed successfully."
+
       - name: Run PowerShell profiler
+        if: steps.validate.outcome == 'success'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -273,10 +373,11 @@ jobs:
               }
 
               if ($threshold -gt 0 -and $totalSeconds -gt $threshold) {
-                  throw `
-                    "Performance threshold exceeded. " +
-                    "Actual: $totalSeconds seconds. " +
-                    "Allowed: $threshold seconds."
+                  throw (
+                      "Performance threshold exceeded. " +
+                      "Actual: $totalSeconds seconds. " +
+                      "Allowed: $threshold seconds."
+                  )
               }
 
               Write-Host "Profiling completed successfully."
@@ -308,7 +409,7 @@ jobs:
 
       - name: Upload profiler results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: powershell-profiler-results
           path: profiler-results
