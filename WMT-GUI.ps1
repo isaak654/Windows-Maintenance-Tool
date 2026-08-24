@@ -12,142 +12,6 @@
 $AppVersion = "6.5"
 $ErrorActionPreference = "SilentlyContinue"
 
-function Get-WmtSettings {
-# OPTIMIZATION: Return cached settings if available to avoid disk I/O.
-# Return a shallow clone so callers can't mutate the cache by reference.
-if ($script:WmtSettingsCache) {
-    $clone = @{}
-    foreach ($k in @($script:WmtSettingsCache.Keys)) {
-        $clone[$k] = $script:WmtSettingsCache[$k]
-    }
-    return $clone
-}
-
-$path = Join-Path (Get-DataPath) "settings.json"
-
-# Default Structure
-$defaults = @{
-    TempCleanup                = @{}
-    RegistryScan               = @{}
-    WingetIgnore               = @("228980") # Filter false positive updates for Steamworks Redist
-    WingetIncludeUnknown       = $true
-    UpdateAutoScanMinutes      = 0
-    UpdateNotificationsEnabled = $true
-    UpdateSilentInstallEnabled = $false
-    UpdateAutoInstallEnabled   = $false
-    RunInTrayOnClose           = $false
-    ReduceRamInTray            = $true
-    DisableBackgroundJobs      = $false
-    UpdateScansDisabled         = $false
-    SavedUpdateAutoScanMinutes = 0
-    LoadWinapp2                = $false 
-    LoadWinapp3                = $false
-    LoadCleanerML              = $false
-    LoadCleanerMLPending       = $false
-    SkipRuleDownloads          = $false
-    CacheOnly                  = $false
-    EnabledProviders           = @("winget", "msstore", "windowsupdate", "pip", "npm", "pnpm", "dotnet", "psmodule", "composer", "chocolatey", "scoop", "gem", "cargo", "steam", "legendary", "gogdl")
-    WuCategoryToggles          = @{}
-    ProviderToggles            = @{}
-    CustomDnsServers           = @()
-    CustomDohTemplate          = ""
-    CustomDohEnabled           = $false
-    Theme                      = "dark"
-    WindowState                = "Normal"
-    WindowBounds               = @{
-        Top    = 0
-        Left   = 0
-        Width  = 1280
-        Height = 820
-    }
-}
-
-if (Test-Path $path) {
-    try {
-        $json = Get-Content $path -Raw | ConvertFrom-Json
-
-        if ($json.TempCleanup) { 
-            foreach ($p in $json.TempCleanup.PSObject.Properties) { $defaults.TempCleanup[$p.Name] = $p.Value } 
-        }
-        if ($json.RegistryScan) { 
-            foreach ($p in $json.RegistryScan.PSObject.Properties) { $defaults.RegistryScan[$p.Name] = $p.Value } 
-        }
-        if ($json.PSObject.Properties["WingetIgnore"]) {
-            $raw = $json.WingetIgnore
-            $clean = New-Object System.Collections.ArrayList
-            if ($raw) { foreach ($item in $raw) { [void]$clean.Add("$item".Trim()) } }
-            $defaults.WingetIgnore = $clean.ToArray()
-        }
-        if ($json.PSObject.Properties["WingetIncludeUnknown"]) { $defaults.WingetIncludeUnknown = [bool]$json.WingetIncludeUnknown }
-        if ($json.PSObject.Properties["UpdateAutoScanMinutes"]) {
-            try { $defaults.UpdateAutoScanMinutes = [int]$json.UpdateAutoScanMinutes } catch { $defaults.UpdateAutoScanMinutes = 0 }
-            if ($defaults.UpdateAutoScanMinutes -lt 0) { $defaults.UpdateAutoScanMinutes = 0 }
-        }
-        if ($json.PSObject.Properties["UpdateNotificationsEnabled"]) { $defaults.UpdateNotificationsEnabled = [bool]$json.UpdateNotificationsEnabled }
-        if ($json.PSObject.Properties["UpdateSilentInstallEnabled"]) { $defaults.UpdateSilentInstallEnabled = [bool]$json.UpdateSilentInstallEnabled }
-        if ($json.PSObject.Properties["UpdateAutoInstallEnabled"]) { $defaults.UpdateAutoInstallEnabled = [bool]$json.UpdateAutoInstallEnabled }
-        if ($json.PSObject.Properties["RunInTrayOnClose"]) { $defaults.RunInTrayOnClose = [bool]$json.RunInTrayOnClose }
-        if ($json.PSObject.Properties["ReduceRamInTray"]) { $defaults.ReduceRamInTray = [bool]$json.ReduceRamInTray }
-        if ($json.PSObject.Properties["DisableBackgroundJobs"]) { $defaults.DisableBackgroundJobs = [bool]$json.DisableBackgroundJobs }
-        if ($json.PSObject.Properties["UpdateScansDisabled"]) { $defaults.UpdateScansDisabled = [bool]$json.UpdateScansDisabled }
-        if ($json.PSObject.Properties["SavedUpdateAutoScanMinutes"]) {
-            try { $defaults.SavedUpdateAutoScanMinutes = [int]$json.SavedUpdateAutoScanMinutes } catch { $defaults.SavedUpdateAutoScanMinutes = 0 }
-            if ($defaults.SavedUpdateAutoScanMinutes -lt 0) { $defaults.SavedUpdateAutoScanMinutes = 0 }
-        }
-        if ($json.PSObject.Properties["LoadWinapp2"]) { $defaults.LoadWinapp2 = [bool]$json.LoadWinapp2 }
-        if ($json.PSObject.Properties["LoadWinapp3"]) { $defaults.LoadWinapp3 = [bool]$json.LoadWinapp3 }
-        if ($json.PSObject.Properties["LoadCleanerML"]) { $defaults.LoadCleanerML = [bool]$json.LoadCleanerML }
-        if ($json.PSObject.Properties["LoadCleanerMLPending"]) { $defaults.LoadCleanerMLPending = [bool]$json.LoadCleanerMLPending }
-        if ($json.PSObject.Properties["SkipRuleDownloads"]) { $defaults.SkipRuleDownloads = [bool]$json.SkipRuleDownloads }
-        if ($json.PSObject.Properties["CacheOnly"]) { $defaults.CacheOnly = [bool]$json.CacheOnly }
-        if ($json.PSObject.Properties["EnabledProviders"]) { $defaults.EnabledProviders = $json.EnabledProviders }
-        if ($json.PSObject.Properties["ProviderToggles"]) { $defaults.ProviderToggles = $json.ProviderToggles }
-        if ($json.PSObject.Properties["WuCategoryToggles"]) { $defaults.WuCategoryToggles = $json.WuCategoryToggles }
-        if ($json.PSObject.Properties["CustomDnsServers"]) {
-            $customDnsServers = @()
-            foreach ($server in @($json.CustomDnsServers)) {
-                $serverText = ([string]$server).Trim()
-                if (-not [string]::IsNullOrWhiteSpace($serverText)) { $customDnsServers += $serverText }
-            }
-            $defaults.CustomDnsServers = $customDnsServers
-        }
-        if ($json.PSObject.Properties["CustomDohTemplate"]) { $defaults.CustomDohTemplate = [string]$json.CustomDohTemplate }
-        if ($json.PSObject.Properties["CustomDohEnabled"]) { $defaults.CustomDohEnabled = [bool]$json.CustomDohEnabled }
-        if ($json.PSObject.Properties["Theme"] -and $json.Theme) { $defaults.Theme = [string]$json.Theme }
-        if ($json.PSObject.Properties["WindowState"] -and $json.WindowState) { $defaults.WindowState = [string]$json.WindowState }
-        if ($json.PSObject.Properties["WindowBounds"] -and $json.WindowBounds) {
-            $defaults.WindowBounds = @{
-                Top    = [double]$json.WindowBounds.Top
-                Left   = [double]$json.WindowBounds.Left
-                Width  = [double]$json.WindowBounds.Width
-                Height = [double]$json.WindowBounds.Height
-            }
-        }
-    }
-    catch { 
-        Write-GuiLog "Error loading settings: $($_.Exception.Message)" 
-    }
-}
-$normalizedProviders = New-Object System.Collections.Generic.List[string]
-foreach ($provider in @($defaults.EnabledProviders)) {
-    $providerKey = ([string]$provider).Trim().ToLowerInvariant()
-    if ([string]::IsNullOrWhiteSpace($providerKey)) { continue }
-    if ($providerKey -eq "comet") { $providerKey = "gogdl" }
-    if (-not $normalizedProviders.Contains($providerKey)) {
-        [void]$normalizedProviders.Add($providerKey)
-    }
-}
-if ($normalizedProviders.Count -eq 0) {
-    [void]$normalizedProviders.Add("winget")
-}
-$defaults.EnabledProviders = $normalizedProviders.ToArray()
-
-# Cache the result
-$script:WmtSettingsCache = $defaults
-return $defaults
-}
-
-$script:WmtDebug = [bool](Get-WmtSettings -Name "DebugMode" -Default $false -ErrorAction SilentlyContinue)
 # Preserve UTF-8 for web content, alt codes, and Unicode symbols.
 # OEM encoding is only used per-process where needed (e.g. ipconfig).
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -3814,7 +3678,145 @@ catch {}
 $script:DataDir = $dataPath
 return $dataPath
 }
+
 $script:DataDir = Get-DataPath
+
+function Get-WmtSettings {
+# OPTIMIZATION: Return cached settings if available to avoid disk I/O.
+# Return a shallow clone so callers can't mutate the cache by reference.
+if ($script:WmtSettingsCache) {
+    $clone = @{}
+    foreach ($k in @($script:WmtSettingsCache.Keys)) {
+        $clone[$k] = $script:WmtSettingsCache[$k]
+    }
+    return $clone
+}
+
+$path = Join-Path (Get-DataPath) "settings.json"
+
+# Default Structure
+$defaults = @{
+    TempCleanup                = @{}
+    RegistryScan               = @{}
+    WingetIgnore               = @("228980") # Filter false positive updates for Steamworks Redist
+    WingetIncludeUnknown       = $true
+    UpdateAutoScanMinutes      = 0
+    UpdateNotificationsEnabled = $true
+    UpdateSilentInstallEnabled = $false
+    UpdateAutoInstallEnabled   = $false
+    RunInTrayOnClose           = $false
+    ReduceRamInTray            = $true
+    DisableBackgroundJobs      = $false
+    UpdateScansDisabled         = $false
+    SavedUpdateAutoScanMinutes = 0
+    LoadWinapp2                = $false 
+    LoadWinapp3                = $false
+    LoadCleanerML              = $false
+    LoadCleanerMLPending       = $false
+    SkipRuleDownloads          = $false
+    CacheOnly                  = $false
+    EnabledProviders           = @("winget", "msstore", "windowsupdate", "pip", "npm", "pnpm", "dotnet", "psmodule", "composer", "chocolatey", "scoop", "gem", "cargo", "steam", "legendary", "gogdl")
+    WuCategoryToggles          = @{}
+    ProviderToggles            = @{}
+    CustomDnsServers           = @()
+    CustomDohTemplate          = ""
+    CustomDohEnabled           = $false
+    Theme                      = "dark"
+    WindowState                = "Normal"
+    WindowBounds               = @{
+        Top    = 0
+        Left   = 0
+        Width  = 1280
+        Height = 820
+    }
+}
+
+if (Test-Path $path) {
+    try {
+        $json = Get-Content $path -Raw | ConvertFrom-Json
+
+        if ($json.TempCleanup) { 
+            foreach ($p in $json.TempCleanup.PSObject.Properties) { $defaults.TempCleanup[$p.Name] = $p.Value } 
+        }
+        if ($json.RegistryScan) { 
+            foreach ($p in $json.RegistryScan.PSObject.Properties) { $defaults.RegistryScan[$p.Name] = $p.Value } 
+        }
+        if ($json.PSObject.Properties["WingetIgnore"]) {
+            $raw = $json.WingetIgnore
+            $clean = New-Object System.Collections.ArrayList
+            if ($raw) { foreach ($item in $raw) { [void]$clean.Add("$item".Trim()) } }
+            $defaults.WingetIgnore = $clean.ToArray()
+        }
+        if ($json.PSObject.Properties["WingetIncludeUnknown"]) { $defaults.WingetIncludeUnknown = [bool]$json.WingetIncludeUnknown }
+        if ($json.PSObject.Properties["UpdateAutoScanMinutes"]) {
+            try { $defaults.UpdateAutoScanMinutes = [int]$json.UpdateAutoScanMinutes } catch { $defaults.UpdateAutoScanMinutes = 0 }
+            if ($defaults.UpdateAutoScanMinutes -lt 0) { $defaults.UpdateAutoScanMinutes = 0 }
+        }
+        if ($json.PSObject.Properties["UpdateNotificationsEnabled"]) { $defaults.UpdateNotificationsEnabled = [bool]$json.UpdateNotificationsEnabled }
+        if ($json.PSObject.Properties["UpdateSilentInstallEnabled"]) { $defaults.UpdateSilentInstallEnabled = [bool]$json.UpdateSilentInstallEnabled }
+        if ($json.PSObject.Properties["UpdateAutoInstallEnabled"]) { $defaults.UpdateAutoInstallEnabled = [bool]$json.UpdateAutoInstallEnabled }
+        if ($json.PSObject.Properties["RunInTrayOnClose"]) { $defaults.RunInTrayOnClose = [bool]$json.RunInTrayOnClose }
+        if ($json.PSObject.Properties["ReduceRamInTray"]) { $defaults.ReduceRamInTray = [bool]$json.ReduceRamInTray }
+        if ($json.PSObject.Properties["DisableBackgroundJobs"]) { $defaults.DisableBackgroundJobs = [bool]$json.DisableBackgroundJobs }
+        if ($json.PSObject.Properties["UpdateScansDisabled"]) { $defaults.UpdateScansDisabled = [bool]$json.UpdateScansDisabled }
+        if ($json.PSObject.Properties["SavedUpdateAutoScanMinutes"]) {
+            try { $defaults.SavedUpdateAutoScanMinutes = [int]$json.SavedUpdateAutoScanMinutes } catch { $defaults.SavedUpdateAutoScanMinutes = 0 }
+            if ($defaults.SavedUpdateAutoScanMinutes -lt 0) { $defaults.SavedUpdateAutoScanMinutes = 0 }
+        }
+        if ($json.PSObject.Properties["LoadWinapp2"]) { $defaults.LoadWinapp2 = [bool]$json.LoadWinapp2 }
+        if ($json.PSObject.Properties["LoadWinapp3"]) { $defaults.LoadWinapp3 = [bool]$json.LoadWinapp3 }
+        if ($json.PSObject.Properties["LoadCleanerML"]) { $defaults.LoadCleanerML = [bool]$json.LoadCleanerML }
+        if ($json.PSObject.Properties["LoadCleanerMLPending"]) { $defaults.LoadCleanerMLPending = [bool]$json.LoadCleanerMLPending }
+        if ($json.PSObject.Properties["SkipRuleDownloads"]) { $defaults.SkipRuleDownloads = [bool]$json.SkipRuleDownloads }
+        if ($json.PSObject.Properties["CacheOnly"]) { $defaults.CacheOnly = [bool]$json.CacheOnly }
+        if ($json.PSObject.Properties["EnabledProviders"]) { $defaults.EnabledProviders = $json.EnabledProviders }
+        if ($json.PSObject.Properties["ProviderToggles"]) { $defaults.ProviderToggles = $json.ProviderToggles }
+        if ($json.PSObject.Properties["WuCategoryToggles"]) { $defaults.WuCategoryToggles = $json.WuCategoryToggles }
+        if ($json.PSObject.Properties["CustomDnsServers"]) {
+            $customDnsServers = @()
+            foreach ($server in @($json.CustomDnsServers)) {
+                $serverText = ([string]$server).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($serverText)) { $customDnsServers += $serverText }
+            }
+            $defaults.CustomDnsServers = $customDnsServers
+        }
+        if ($json.PSObject.Properties["CustomDohTemplate"]) { $defaults.CustomDohTemplate = [string]$json.CustomDohTemplate }
+        if ($json.PSObject.Properties["CustomDohEnabled"]) { $defaults.CustomDohEnabled = [bool]$json.CustomDohEnabled }
+        if ($json.PSObject.Properties["Theme"] -and $json.Theme) { $defaults.Theme = [string]$json.Theme }
+        if ($json.PSObject.Properties["WindowState"] -and $json.WindowState) { $defaults.WindowState = [string]$json.WindowState }
+        if ($json.PSObject.Properties["WindowBounds"] -and $json.WindowBounds) {
+            $defaults.WindowBounds = @{
+                Top    = [double]$json.WindowBounds.Top
+                Left   = [double]$json.WindowBounds.Left
+                Width  = [double]$json.WindowBounds.Width
+                Height = [double]$json.WindowBounds.Height
+            }
+        }
+    }
+    catch { 
+        Write-GuiLog "Error loading settings: $($_.Exception.Message)" 
+    }
+}
+$normalizedProviders = New-Object System.Collections.Generic.List[string]
+foreach ($provider in @($defaults.EnabledProviders)) {
+    $providerKey = ([string]$provider).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($providerKey)) { continue }
+    if ($providerKey -eq "comet") { $providerKey = "gogdl" }
+    if (-not $normalizedProviders.Contains($providerKey)) {
+        [void]$normalizedProviders.Add($providerKey)
+    }
+}
+if ($normalizedProviders.Count -eq 0) {
+    [void]$normalizedProviders.Add("winget")
+}
+$defaults.EnabledProviders = $normalizedProviders.ToArray()
+
+# Cache the result
+$script:WmtSettingsCache = $defaults
+return $defaults
+}
+
+$script:WmtDebug = [bool](Get-WmtSettings -Name "DebugMode" -Default $false -ErrorAction SilentlyContinue)
 
 function Write-WmtLastCrash {
 param(
