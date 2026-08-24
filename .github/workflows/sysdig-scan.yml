@@ -48,7 +48,7 @@ jobs:
 
       - name: Sysdig Secure Inline Scan
         id: scan
-        uses: sysdiglabs/scan-action@768d7626a14897e0948ea89c8437dd46a814b163
+        uses: sysdiglabs/scan-action@v6
         with:
           image-tag: ${{ steps.image.outputs.tag }}
           sysdig-secure-token: ${{ secrets.SYSDIG_SECURE_TOKEN }}
@@ -58,9 +58,15 @@ jobs:
           ignore-failed-scan: true
           run-as-user: root
 
+      - name: Verify SARIF report
+        if: success() || failure()
+        run: |
+          ls -la "${{ github.workspace }}"
+          test -f "${{ github.workspace }}/sarif.json"
+
       - name: Upload SARIF report to GitHub
         if: success() || failure()
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: ${{ steps.scan.outputs.sarifReport }}
+          sarif_file: ${{ github.workspace }}/sarif.json
           category: sysdig
