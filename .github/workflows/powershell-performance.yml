@@ -75,65 +75,71 @@ jobs:
             -ChildPath $env:SCRIPT_PATH
 
           $scriptPath = (Resolve-Path -LiteralPath $scriptPath).Path
-          $exportPath = Join-Path $PWD "profiler-results"
+
+          $exportDirectory = Join-Path `
+            -Path $PWD `
+            -ChildPath "profiler-results"
 
           New-Item `
             -ItemType Directory `
-            -Path $exportPath `
+            -Path $exportDirectory `
             -Force | Out-Null
+
+          # ExportPath is a file base path, not a directory.
+          # Profiler appends ".speedscope.json" automatically.
+          $exportBasePath = Join-Path `
+            -Path $exportDirectory `
+            -ChildPath "profile"
 
           Import-Module Profiler
 
-          Write-Host "Profiling script: $scriptPath"
+          try {
+              Write-Host "Profiling script: $scriptPath"
 
-          # Preheat prevents first-run startup overhead from distorting the result.
-          $trace = Trace-Script `
-            -ScriptBlock {
-                & $scriptPath
-            } `
-            -Preheat 1 `
-            -ExportPath $exportPath
+              $trace = Trace-Script `
+                -ScriptBlock {
+                    & $scriptPath
+                } `
+                -Preheat 1 `
+                -ExportPath $exportBasePath
 
-          if ($null -eq $trace) {
-              throw "The profiler did not return any result."
-          }
+              if ($null -eq $trace) {
+                  throw "The profiler did not return any result."
+              }
 
-          # Export the complete trace as JSON.
-          $trace |
-            ConvertTo-Json -Depth 20 |
-            Set-Content `
-              -Path (Join-Path $exportPath "trace.json") `
-              -Encoding UTF8
+              $trace |
+                ConvertTo-Json -Depth 20 |
+                Set-Content `
+                  -Path (Join-Path $exportDirectory "trace.json") `
+                  -Encoding UTF8
 
-          # Export the slowest individual lines.
-          $trace.Top50SelfDuration |
-            Select-Object `
-              File,
-              Line,
-              Text,
-              SelfDuration,
-              SelfPercent |
-            ConvertTo-Json -Depth 10 |
-            Set-Content `
-              -Path (Join-Path $exportPath "top-self-duration.json") `
-              -Encoding UTF8
+              $trace.Top50SelfDuration |
+                Select-Object `
+                  File,
+                  Line,
+                  Text,
+                  SelfDuration,
+                  SelfPercent |
+                ConvertTo-Json -Depth 10 |
+                Set-Content `
+                  -Path (Join-Path $exportDirectory "top-self-duration.json") `
+                  -Encoding UTF8
 
-          # Export the slowest operations including nested calls.
-          $trace.Top50Duration |
-            Select-Object `
-              File,
-              Line,
-              Text,
-              Duration,
-              Percent |
-            ConvertTo-Json -Depth 10 |
-            Set-Content `
-              -Path (Join-Path $exportPath "top-duration.json") `
-              -Encoding UTF8
+              $trace.Top50Duration |
+                Select-Object `
+                  File,
+                  Line,
+                  Text,
+                  Duration,
+                  Percent |
+                ConvertTo-Json -Depth 10 |
+                Set-Content `
+                  -Path (Join-Path $exportDirectory "top-duration.json") `
+                  -Encoding UTF8
 
-          $totalSeconds = $trace.TotalDuration.TotalSeconds
+              $totalSeconds = $trace.TotalDuration.TotalSeconds
 
-          $report = @"
+              @"
           ## PowerShell performance report
 
           **Script:** ``$env:SCRIPT_PATH``  
@@ -142,7 +148,7 @@ jobs:
 
           ### Slowest lines by self duration
 
-          `````text
+          ```\`text
           \$(
               \$trace.Top50SelfDuration |
                   Select-Object -First 20 \`
@@ -154,28 +160,47 @@ jobs:
                   Format-Table -AutoSize |
                   Out-String
           )
-          `````
-          "@
+          ````
+          "@ | Out-File `
+                -FilePath $env:GITHUB_STEP_SUMMARY `
+                -Encoding utf8
 
-          $report |
-            Out-File `
-              -FilePath $env:GITHUB_STEP_SUMMARY `
-              -Encoding utf8
+              $threshold = [double]$env:FAIL_THRESHOLD_SECONDS
 
-          $threshold = [double]$env:FAIL_THRESHOLD_SECONDS
+              if ($threshold -gt 0 -and $totalSeconds -gt $threshold) {
+                  throw "Performance threshold exceeded. Actual: $totalSeconds seconds. Allowed: $threshold seconds."
+              }
 
-          if ($threshold -gt 0 -and $totalSeconds -gt $threshold) {
-              throw "Performance threshold exceeded. Actual: $totalSeconds seconds. Allowed: $threshold seconds."
+              Write-Host "Profiling completed successfully."
+          }
+          catch {
+              $_ | Out-String |
+                Set-Content `
+                  -Path (Join-Path $exportDirectory "profiler-error.txt") `
+                  -Encoding UTF8
+
+              throw
           }
 
-          Write-Host "Profiling completed successfully."
-          Write-Host "Total duration: $totalSeconds seconds"
+      - name: List profiler output files
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath "profiler-results") {
+              Get-ChildItem `
+                -Path "profiler-results" `
+                -Recurse `
+                -Force
+          }
+          else {
+              Write-Warning "The profiler-results directory does not exist."
+          }
 
       - name: Upload profiler results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: powershell-profiler-results
-          path: profiler-results/
+          path: profiler-results
           if-no-files-found: warn
           retention-days: 14
