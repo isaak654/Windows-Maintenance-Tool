@@ -408,7 +408,7 @@ jobs:
                   "### Slowest lines by self duration"
                   ""
                   '```text'
-                  \$topOperations
+                  $topOperations
                   '```'
               )
 
