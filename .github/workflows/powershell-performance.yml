@@ -51,29 +51,38 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          # Create the output directory before validating the target script.
+          $resultsDirectory = Join-Path `
+            -Path (Get-Location) `
+            -ChildPath "profiler-results"
+
           New-Item `
             -ItemType Directory `
-            -Path "profiler-results" `
-            -Force | Out-Null
+            -Path $resultsDirectory `
+            -Force |
+            Out-Null
 
-          $requestedPath = Join-Path `
-            -Path $PWD `
-            -ChildPath $env:SCRIPT_PATH
+          $requestedPath = $env:SCRIPT_PATH
+
+          if ([System.IO.Path]::IsPathRooted($requestedPath)) {
+              $candidatePath = $requestedPath
+          }
+          else {
+              $candidatePath = Join-Path `
+                -Path (Get-Location) `
+                -ChildPath $requestedPath
+          }
 
           $resolvedScriptPath = $null
 
-          # First, try the exact relative path provided as workflow input.
-          if (Test-Path -LiteralPath $requestedPath -PathType Leaf) {
-              $resolvedScriptPath = (Resolve-Path -LiteralPath $requestedPath).Path
+          if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+              $resolvedScriptPath = (Resolve-Path -LiteralPath $candidatePath).Path
           }
           else {
-              # If the exact path does not exist, search recursively by file name.
-              $requestedName = [System.IO.Path]::GetFileName($env:SCRIPT_PATH)
+              $requestedName = [System.IO.Path]::GetFileName($requestedPath)
 
               $matches = @(
                   Get-ChildItem `
-                    -Path $PWD `
+                    -Path (Get-Location) `
                     -Recurse `
                     -File `
                     -Filter $requestedName |
@@ -98,7 +107,7 @@ jobs:
               Write-Host "Available PowerShell scripts:"
 
               Get-ChildItem `
-                -Path $PWD `
+                -Path (Get-Location) `
                 -Recurse `
                 -File `
                 -Filter "*.ps1" |
@@ -107,20 +116,47 @@ jobs:
               } |
               Select-Object -ExpandProperty FullName
 
-              throw "PowerShell script not found: $($env:SCRIPT_PATH)"
+              throw "PowerShell script not found: $requestedPath"
           }
 
-          if ([System.IO.Path]::GetExtension($resolvedScriptPath) -ne ".ps1") {
+          if (
+              [System.IO.Path]::GetExtension($resolvedScriptPath) `
+              -ine ".ps1"
+          ) {
               throw "The selected file must have a .ps1 extension."
           }
 
           Write-Host "Target script: $resolvedScriptPath"
 
-          # Make the resolved absolute path available to later steps.
           "RESOLVED_SCRIPT_PATH=$resolvedScriptPath" |
             Add-Content `
               -Path $env:GITHUB_ENV `
               -Encoding utf8
+
+      - name: Validate target script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $scriptPath = $env:RESOLVED_SCRIPT_PATH
+
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+              throw "Resolved PowerShell script not found: $scriptPath"
+          }
+
+          try {
+              & $scriptPath
+          }
+          catch {
+              $errorMessage = $_ | Out-String
+
+              $errorMessage |
+                Set-Content `
+                  -Path "profiler-results/preflight-error.txt" `
+                  -Encoding utf8
+
+              throw "The target script failed during validation.`n$errorMessage"
+          }
 
       - name: Run PowerShell profiler
         shell: pwsh
@@ -128,28 +164,25 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           $scriptPath = $env:RESOLVED_SCRIPT_PATH
+
           $exportDirectory = Join-Path `
-            -Path $PWD `
+            -Path (Get-Location) `
             -ChildPath "profiler-results"
 
-          # ExportPath is a file base path, not a directory.
-          # The Profiler module appends ".speedscope.json".
           $exportBasePath = Join-Path `
             -Path $exportDirectory `
             -ChildPath "profile"
 
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-              throw "Resolved PowerShell script not found: $scriptPath"
-          }
-
-          Import-Module Profiler -ErrorAction Stop
+          Import-Module `
+            -Name Profiler `
+            -ErrorAction Stop
 
           try {
               Write-Host "Profiling script: $scriptPath"
 
-              # The target script is executed by Trace-Script.
               $trace = Trace-Script `
                 -ScriptBlock {
+                    $ErrorActionPreference = "Stop"
                     & $scriptPath
                 } `
                 -Preheat 1 `
@@ -159,59 +192,62 @@ jobs:
                   throw "The profiler did not return any result."
               }
 
-              # Export the complete profiler result as JSON.
               $trace |
-                ConvertTo-Json -Depth 20 |
-                Set-Content `
-                  -Path (Join-Path $exportDirectory "trace.json") `
-                  -Encoding utf8
+                Export-Clixml `
+                  -Path (Join-Path $exportDirectory "trace.clixml") `
+                  -Depth 20
 
-              # Export the slowest operations by self duration.
-              $trace.Top50SelfDuration |
-                Select-Object `
-                  File,
-                  Line,
-                  Text,
-                  SelfDuration,
-                  SelfPercent |
-                ConvertTo-Json -Depth 10 |
+              @(
+                  $trace.Top50SelfDuration |
+                    Select-Object `
+                      File,
+                      Line,
+                      Text,
+                      SelfDuration,
+                      SelfPercent
+              ) |
+                ConvertTo-Json `
+                  -Depth 10 |
                 Set-Content `
                   -Path (Join-Path $exportDirectory "top-self-duration.json") `
                   -Encoding utf8
 
-              # Export the slowest operations including nested calls.
-              $trace.Top50Duration |
-                Select-Object `
-                  File,
-                  Line,
-                  Text,
-                  Duration,
-                  Percent |
-                ConvertTo-Json -Depth 10 |
+              @(
+                  $trace.Top50Duration |
+                    Select-Object `
+                      File,
+                      Line,
+                      Text,
+                      Duration,
+                      Percent
+              ) |
+                ConvertTo-Json `
+                  -Depth 10 |
                 Set-Content `
                   -Path (Join-Path $exportDirectory "top-duration.json") `
                   -Encoding utf8
 
-              $totalSeconds = $trace.TotalDuration.TotalSeconds
+              $totalSeconds = [double]$trace.TotalDuration.TotalSeconds
 
-              $topOperations = $trace.Top50SelfDuration |
-                Select-Object -First 20 `
-                  File,
-                  Line,
-                  Text,
-                  SelfDuration,
-                  SelfPercent |
-                Format-Table -AutoSize |
-                Out-String
+              $topOperations = @(
+                  $trace.Top50SelfDuration |
+                    Select-Object -First 20 `
+                      File,
+                      Line,
+                      Text,
+                      SelfDuration,
+                      SelfPercent |
+                    Format-Table -AutoSize |
+                    Out-String
+              ) -join ""
 
-              # Build the GitHub Actions job summary.
               $summary = @(
                   "## PowerShell performance report"
                   ""
-                  "**Script:** ``$env:SCRIPT_PATH``  "
-                  "**Resolved path:** ``$scriptPath``  "
-                  "**Total duration:** ``$($trace.TotalDuration)``  "
-                  "**Total seconds:** ``$totalSeconds``"
+                  "**Script:** $($env:SCRIPT_PATH)  "
+                  "**Resolved path:** $scriptPath  "
+                  "**Total duration:** $($trace.TotalDuration)  "
+                  "**Total seconds:** $totalSeconds"
                   ""
                   "### Slowest lines by self duration"
                   ""
@@ -225,11 +261,22 @@ jobs:
                   -FilePath $env:GITHUB_STEP_SUMMARY `
                   -Encoding utf8
 
-              # Optionally fail the workflow if the execution time is too high.
-              $threshold = [double]$env:FAIL_THRESHOLD_SECONDS
+              $threshold = 0.0
+
+              if (-not [double]::TryParse(
+                  $env:FAIL_THRESHOLD_SECONDS,
+                  [Globalization.NumberStyles]::Float,
+                  [Globalization.CultureInfo]::InvariantCulture,
+                  [ref]$threshold
+              )) {
+                  throw "FAIL_THRESHOLD_SECONDS must be a valid number."
+              }
 
               if ($threshold -gt 0 -and $totalSeconds -gt $threshold) {
-                  throw "Performance threshold exceeded. Actual: $totalSeconds seconds. Allowed: $threshold seconds."
+                  throw `
+                    "Performance threshold exceeded. " +
+                    "Actual: $totalSeconds seconds. " +
+                    "Allowed: $threshold seconds."
               }
 
               Write-Host "Profiling completed successfully."
