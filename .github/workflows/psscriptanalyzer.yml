@@ -115,20 +115,22 @@ jobs:
             -Path $PWD `
             -ChildPath 'PSScriptAnalyzerSettings.psd1'
 
-          $parameters = @{
-            Path        = $files.FullName
-            Recurse     = $false
-            ErrorAction = 'Stop'
-          }
+          $issues = foreach ($file in $files) {
+            Write-Host "Analyzing: $($file.FullName)"
 
-          if (Test-Path -LiteralPath $settingsPath) {
-            Write-Host "Using settings file: $settingsPath"
-            $parameters.Settings = $settingsPath
-          }
+            $parameters = @{
+              Path        = $file.FullName
+              ErrorAction = 'Stop'
+            }
 
-          $issues = @(
+            if (Test-Path -LiteralPath $settingsPath) {
+              $parameters.Settings = $settingsPath
+            }
+
             Invoke-ScriptAnalyzer @parameters
-          )
+          }
+
+          $issues = @($issues)
 
           $issues |
             ConvertTo-Json -Depth 8 |
