@@ -107,6 +107,27 @@ jobs:
 
           if ($files.Count -eq 0) {
             Write-Warning 'No PowerShell files were found.'
+
+            @{
+              '$schema' = 'https://json.schemastore.org/sarif-2.1.0.json'
+              version   = '2.1.0'
+              runs      = @(
+                @{
+                  tool = @{
+                    driver = @{
+                      name  = 'PSScriptAnalyzer'
+                      rules = @()
+                    }
+                  }
+                  results = @()
+                }
+              )
+            } |
+              ConvertTo-Json -Depth 20 |
+              Set-Content `
+                -Path PSScriptAnalyzer-results.sarif `
+                -Encoding utf8
+
             exit 0
           }
 
@@ -133,10 +154,66 @@ jobs:
 
           $issues = @($issues)
 
+          # Save all findings, including warnings and information messages.
+          $issues |
+            ConvertTo-Json -Depth 8 |
+            Set-Content `
+              -Path PSScriptAnalyzer-results.json `
+              -Encoding utf8
+
+          $errors = @(
+            $issues |
+              Where-Object {
+                $_.Severity -eq 'Error' -or
+                $_.Severity -eq 'ParseError'
+              }
+          )
+
+          $warnings = @(
+            $issues |
+              Where-Object Severity -eq 'Warning'
+          )
+
+          $information = @(
+            $issues |
+              Where-Object Severity -eq 'Information'
+          )
+
+          Write-Host ''
+          Write-Host "Errors:       $($errors.Count)"
+          Write-Host "Warnings:     $($warnings.Count)"
+          Write-Host "Information:  $($information.Count)"
+
+          # Print all findings to the workflow log.
+          if ($issues.Count -gt 0) {
+            Write-Host ''
+            Write-Host 'PSScriptAnalyzer findings:'
+
+            $issues |
+              Sort-Object ScriptName, Line, Column |
+              Format-Table `
+                Severity,
+                RuleName,
+                ScriptName,
+                Line,
+                Column,
+                Message `
+                -AutoSize
+          }
+
+          # Include only errors and parse errors in the SARIF report.
+          $sarifIssues = @(
+            $issues |
+              Where-Object {
+                $_.Severity -eq 'Error' -or
+                $_.Severity -eq 'ParseError'
+              }
+          )
+
           $rules = @{}
           $sarifResults = @()
 
-          foreach ($issue in $issues) {
+          foreach ($issue in $sarifIssues) {
             $ruleId = if ($issue.RuleName) {
               [string]$issue.RuleName
             }
@@ -176,21 +253,6 @@ jobs:
 
             $relativePath = $relativePath.Replace('\', '/')
 
-            $level = switch ([string]$issue.Severity) {
-              'Error' {
-                'error'
-              }
-              'ParseError' {
-                'error'
-              }
-              'Warning' {
-                'warning'
-              }
-              default {
-                'note'
-              }
-            }
-
             $startLine = if ($issue.Line) {
               [int]$issue.Line
             }
@@ -205,22 +267,10 @@ jobs:
               1
             }
 
-            $endLine = $startLine
-            $endColumn = $startColumn + 1
-
-            if ($issue.Extent) {
-              if ($issue.Extent.EndLineNumber) {
-                $endLine = [int]$issue.Extent.EndLineNumber
-              }
-
-              if ($issue.Extent.EndColumnNumber) {
-                $endColumn = [int]$issue.Extent.EndColumnNumber
-              }
-            }
-
+            # Use only the starting position to avoid oversized code previews.
             $sarifResults += @{
               ruleId  = $ruleId
-              level   = $level
+              level   = 'error'
               message = @{
                 text = [string]$issue.Message
               }
@@ -233,8 +283,6 @@ jobs:
                     region = @{
                       startLine   = $startLine
                       startColumn = $startColumn
-                      endLine     = $endLine
-                      endColumn   = $endColumn
                     }
                   }
                 }
@@ -265,58 +313,13 @@ jobs:
               -Path PSScriptAnalyzer-results.sarif `
               -Encoding utf8
 
-          $issues |
-            ConvertTo-Json -Depth 8 |
-            Set-Content `
-              -Path PSScriptAnalyzer-results.json `
-              -Encoding utf8
-
-          $errors = @(
-            $issues |
-              Where-Object {
-                $_.Severity -eq 'Error' -or
-                $_.Severity -eq 'ParseError'
-              }
-          )
-
-          $warnings = @(
-            $issues |
-              Where-Object Severity -eq 'Warning'
-          )
-
-          $information = @(
-            $issues |
-              Where-Object Severity -eq 'Information'
-          )
-
-          Write-Host ''
-          Write-Host "Errors:       $($errors.Count)"
-          Write-Host "Warnings:     $($warnings.Count)"
-          Write-Host "Information:  $($information.Count)"
-
-          if ($issues.Count -gt 0) {
-            Write-Host ''
-            Write-Host 'PSScriptAnalyzer findings:'
-
-            $issues |
-              Sort-Object ScriptName, Line, Column |
-              Format-Table `
-                Severity,
-                RuleName,
-                ScriptName,
-                Line,
-                Column,
-                Message `
-                -AutoSize
-          }
-
           # Fail the workflow only when errors are detected.
           if ($errors.Count -gt 0) {
             throw "PSScriptAnalyzer detected $($errors.Count) error(s)."
           }
 
       - name: Upload SARIF results to GitHub Code Scanning
-        if: always()
+        if: always() && hashFiles('PSScriptAnalyzer-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: PSScriptAnalyzer-results.sarif
