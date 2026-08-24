@@ -63,32 +63,48 @@ jobs:
         run: |
           set -euo pipefail
 
-          while true; do
-            ANALYSIS_ID="$(
-              gh api \
-                --paginate \
-                "repos/${GH_REPO}/code-scanning/analyses?per_page=100" \
-                --jq '
-                  .[]
-                  | select(
-                      .tool.name == env.TOOL_NAME
-                      and .deletable == true
-                    )
-                  | .id
-                ' |
-                head -n 1
-            )"
+          mapfile -t ANALYSIS_IDS < <(
+            gh api \
+              --paginate \
+              "repos/${GH_REPO}/code-scanning/analyses?per_page=100" \
+              --jq '
+                .[]
+                | select(
+                    .tool.name == env.TOOL_NAME
+                    and .deletable == true
+                  )
+                | .id
+              '
+          )
 
-            if [[ -z "${ANALYSIS_ID}" ]]; then
-              echo "No deletable analyses remain for tool: ${TOOL_NAME}"
-              break
-            fi
+          if [[ ${#ANALYSIS_IDS[@]} -eq 0 ]]; then
+            echo "No deletable analyses found for tool: ${TOOL_NAME}"
+            exit 0
+          fi
 
+          echo "Found ${#ANALYSIS_IDS[@]} deletable analysis/analyses."
+          echo
+
+          for ANALYSIS_ID in "${ANALYSIS_IDS[@]}"; do
             echo "Deleting Code Scanning analysis: ${ANALYSIS_ID}"
 
-            gh api \
-              --method DELETE \
-              "repos/${GH_REPO}/code-scanning/analyses/${ANALYSIS_ID}?confirm_delete=true"
+            if RESPONSE="$(
+              gh api \
+                --method DELETE \
+                "repos/${GH_REPO}/code-scanning/analyses/${ANALYSIS_ID}?confirm_delete=true" \
+                2>&1
+            )"; then
+              echo "Analysis deleted successfully."
+            else
+              if grep -q "HTTP 404" <<< "${RESPONSE}"; then
+                echo "Analysis ${ANALYSIS_ID} was already deleted or is no longer available."
+              else
+                echo "${RESPONSE}"
+                exit 1
+              fi
+            fi
 
-            echo "Analysis deleted successfully."
+            echo
           done
+
+          echo "Deletion process completed."
