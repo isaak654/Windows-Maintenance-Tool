@@ -47,11 +47,13 @@ jobs:
             -AllowClobber
 
       - name: Locate target script
+        id: locate
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
           $repositoryPath = Get-Location
+
           $resultsDirectory = Join-Path `
             -Path $repositoryPath `
             -ChildPath "profiler-results"
@@ -139,17 +141,34 @@ jobs:
 
       - name: Validate target script
         id: validate
+        if: always()
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = "Continue"
 
           $scriptPath = $env:RESOLVED_SCRIPT_PATH
+
           $errorFile = Join-Path `
             -Path (Get-Location) `
             -ChildPath "profiler-results/preflight-errors.txt"
 
+          if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+              "The target script path was not resolved." |
+                Set-Content `
+                  -Path $errorFile `
+                  -Encoding utf8
+
+              exit 1
+          }
+
           if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-              throw "Resolved PowerShell script not found: $scriptPath"
+              "Resolved PowerShell script not found: $scriptPath" |
+                Set-Content `
+                  -Path $errorFile `
+                  -Encoding utf8
+
+              exit 1
           }
 
           $allErrors = @()
@@ -207,12 +226,18 @@ jobs:
                       $sourceLine = $runtimeError.InvocationInfo.Line
                   }
 
+                  $message = $runtimeError.Exception.Message
+
+                  if ([string]::IsNullOrWhiteSpace($message)) {
+                      $message = $runtimeError.ToString()
+                  }
+
                   $allErrors += [PSCustomObject]@{
                       Type    = "Runtime"
                       File    = $scriptPath
                       Line    = $lineNumber
                       Column  = $columnNumber
-                      Message = $runtimeError.Exception.Message
+                      Message = $message
                       Code    = $sourceLine
                   }
               }
@@ -258,10 +283,12 @@ jobs:
           Write-Host "Validation completed successfully."
 
       - name: Run PowerShell profiler
-        if: steps.validate.outcome == 'success'
+        id: profiler
+        if: always()
+        continue-on-error: true
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
+          $ErrorActionPreference = "Continue"
 
           $scriptPath = $env:RESOLVED_SCRIPT_PATH
 
@@ -273,17 +300,46 @@ jobs:
             -Path $exportDirectory `
             -ChildPath "profile"
 
-          Import-Module `
-            -Name Profiler `
-            -ErrorAction Stop
+          if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+              "The target script path was not resolved." |
+                Set-Content `
+                  -Path (Join-Path $exportDirectory "profiler-error.txt") `
+                  -Encoding utf8
+
+              exit 1
+          }
+
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+              "Resolved PowerShell script not found: $scriptPath" |
+                Set-Content `
+                  -Path (Join-Path $exportDirectory "profiler-error.txt") `
+                  -Encoding utf8
+
+              exit 1
+          }
 
           try {
+              Import-Module `
+                -Name Profiler `
+                -ErrorAction Stop
+
               Write-Host "Profiling script: $scriptPath"
 
               $trace = Trace-Script `
                 -ScriptBlock {
-                    $ErrorActionPreference = "Stop"
-                    & $scriptPath
+                    $ErrorActionPreference = "Continue"
+
+                    & $scriptPath 2>&1 |
+                      ForEach-Object {
+                          if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                              Write-Host `
+                                "[Runtime error during profiling] $($_.ToString())" `
+                                -ForegroundColor Red
+                          }
+                          else {
+                              $_ | Out-Host
+                          }
+                      }
                 } `
                 -Preheat 1 `
                 -ExportPath $exportBasePath
@@ -390,7 +446,11 @@ jobs:
                   -Path (Join-Path $exportDirectory "profiler-error.txt") `
                   -Encoding utf8
 
-              throw
+              Write-Host `
+                "Profiler failed: $($_.Exception.Message)" `
+                -ForegroundColor Red
+
+              exit 1
           }
 
       - name: List profiler output files
@@ -415,3 +475,21 @@ jobs:
           path: profiler-results
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Finalize workflow status
+        if: always()
+        shell: pwsh
+        run: |
+          $locateFailed = "${{ steps.locate.outcome }}" -ne "success"
+          $validationFailed = "${{ steps.validate.outcome }}" -ne "success"
+          $profilerFailed = "${{ steps.profiler.outcome }}" -ne "success"
+
+          if ($locateFailed -or $validationFailed -or $profilerFailed) {
+              Write-Host `
+                "Validation or profiling reported errors." `
+                -ForegroundColor Red
+
+              exit 1
+          }
+
+          Write-Host "Validation and profiling completed successfully."
