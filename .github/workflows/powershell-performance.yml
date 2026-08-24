@@ -51,6 +51,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
+          New-Item `
+            -ItemType Directory `
+            -Path "profiler-results" `
+            -Force | Out-Null
+
           $scriptPath = Join-Path `
             -Path $PWD `
             -ChildPath $env:SCRIPT_PATH
