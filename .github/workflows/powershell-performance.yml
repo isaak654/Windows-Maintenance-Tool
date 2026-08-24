@@ -387,14 +387,17 @@ jobs:
 
               $topOperations = @(
                   $trace.Top50SelfDuration |
+                    Where-Object {
+                        $_.File -notmatch '^[0-9a-f-]{36}\.ps1$'
+                    } |
                     Select-Object -First 20 `
                       File,
                       Line,
                       Text,
                       SelfDuration,
                       SelfPercent |
-                    Format-Table -AutoSize |
-                    Out-String
+                    Format-Table -AutoSize -Wrap |
+                    Out-String -Width 300
               ) -join ""
 
               $summary = @(
