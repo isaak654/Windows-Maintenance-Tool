@@ -40566,10 +40566,10 @@ function Update-WmtDisableBgJobsButton {
 Update-WmtDisableBgJobsButton
 
 $btnDisableBgJobs.Add_Click({
-        $currentlyDisabled = Get-WmtDisableBackgroundJobs
+        $currentlyDisabled = [System.Convert]::ToBoolean((Get-WmtDisableBackgroundJobs))
         Set-WmtDisableBackgroundJobs -Enabled (-not $currentlyDisabled)
         Update-WmtDisableBgJobsButton
-        $newState = if (-not $currentlyDisabled) { 'enabled' } else { 'disabled' }
+        $newState = if (-not $currentlyDisabled) { 'disabled' } else { 'enabled' }
         Write-GuiLog "Background jobs $newState. Changes take effect on next tab visit."
     })
 }
@@ -40600,7 +40600,7 @@ function Update-WmtUpdateScansButton {
 Update-WmtUpdateScansButton
 
 $btnDisableUpdateScans.Add_Click({
-        $currentlyDisabled = Get-WmtUpdateScansDisabled
+        $currentlyDisabled = [System.Convert]::ToBoolean((Get-WmtUpdateScansDisabled))
         Set-WmtUpdateScansDisabled -Enabled (-not $currentlyDisabled)
         Update-WmtUpdateScansButton
         $newState = if (-not $currentlyDisabled) { 'disabled' } else { 'enabled' }
